@@ -1392,6 +1392,9 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
+          "image": {
+            "type": "string"
+          },
           "registry": {
             "type": "string"
           },

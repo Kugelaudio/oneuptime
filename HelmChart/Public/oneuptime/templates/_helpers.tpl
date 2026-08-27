@@ -48,7 +48,8 @@ limit so the two never drift apart. Unsuffixed input is treated as bytes.
   {{- $registry := default $values.image.registry $override.registry -}}
   {{- $repository := default $values.image.repository $override.repository -}}
   {{- $tag := default (include "oneuptime.image.tag" (dict "Values" $values)) $override.tag -}}
-  {{- printf "%s/%s/%s:%s" $registry $repository $imageName $tag -}}
+  {{- $fullImage := default (printf "%s/%s/%s" $registry $repository $imageName) $override.image -}}
+  {{- printf "%s:%s" $fullImage $tag -}}
 {{- end -}}
 
 {{/*

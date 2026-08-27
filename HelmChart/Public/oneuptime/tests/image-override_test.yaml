@@ -15,13 +15,12 @@ tests:
       image.registry: docker.io
       image.repository: oneuptime
       image.tag: 12.0.24
-      image.overrides.app.registry: ghcr.io
-      image.overrides.app.repository: kugelaudio/oneuptime
+      image.overrides.app.image: ghcr.io/kugelaudio/oneuptime-app
       image.overrides.app.tag: 12.0.24-kugelaudio-test
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/kugelaudio/oneuptime/app:12.0.24-kugelaudio-test
+          value: ghcr.io/kugelaudio/oneuptime-app:12.0.24-kugelaudio-test
 
   - it: reuses the app override for the worker deployment
     templates:
@@ -31,13 +30,12 @@ tests:
       image.registry: docker.io
       image.repository: oneuptime
       image.tag: 12.0.24
-      image.overrides.app.registry: ghcr.io
-      image.overrides.app.repository: kugelaudio/oneuptime
+      image.overrides.app.image: ghcr.io/kugelaudio/oneuptime-app
       image.overrides.app.tag: 12.0.24-kugelaudio-test
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/kugelaudio/oneuptime/app:12.0.24-kugelaudio-test
+          value: ghcr.io/kugelaudio/oneuptime-app:12.0.24-kugelaudio-test
 
   - it: leaves unrelated components on the upstream image
     templates:
@@ -49,8 +47,7 @@ tests:
       image.registry: docker.io
       image.repository: oneuptime
       image.tag: 12.0.24
-      image.overrides.app.registry: ghcr.io
-      image.overrides.app.repository: kugelaudio/oneuptime
+      image.overrides.app.image: ghcr.io/kugelaudio/oneuptime-app
       image.overrides.app.tag: 12.0.24-kugelaudio-test
     asserts:
       - equal:

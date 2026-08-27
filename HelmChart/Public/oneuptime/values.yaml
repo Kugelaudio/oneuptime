@@ -24,7 +24,9 @@ image:
 
   # KugelAudio modification: override a single component while all other
   # components continue to use the upstream registry, repository, and tag.
-  # Keys are image names such as `app`, `nginx`, `probe`, or `runner`.
+  # Keys are image names such as `app`, `nginx`, `probe`, or `runner`. Set
+  # `image` to a complete registry/repository path, or override registry and
+  # repository separately.
   overrides: {}
 
   ## Type of OneUptime image to use.
