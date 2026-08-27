@@ -134,8 +134,9 @@ COPY --chown=1000:1000 ./App/FeatureSet/PublicDashboard /usr/src/app/FeatureSet/
 COPY --chown=1000:1000 ./App/FeatureSet/BrowserRecorder /usr/src/app/FeatureSet/BrowserRecorder
 # Bundle frontend source
 RUN npm run build-frontends:prod
-# Bundle app source
-RUN npm run compile
+# Bundle app source. The complete application graph exceeds Node's default
+# ~2 GiB old-space limit during `tsc` on clean release builds.
+RUN NODE_OPTIONS=--max-old-space-size=6144 npm run compile
 # IS_ENTERPRISE_EDITION only changes ENV/LABEL metadata and is read by no build
 # step, so declaring it last lets the community and enterprise passes share every
 # heavy cached layer above — only this final metadata layer differs.
