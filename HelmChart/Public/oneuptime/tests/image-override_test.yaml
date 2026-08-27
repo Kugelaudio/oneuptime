@@ -25,6 +25,9 @@ tests:
   - it: reuses the app override for the worker deployment
     templates:
       - templates/worker.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
     set:
       worker.enabled: true
       image.registry: docker.io

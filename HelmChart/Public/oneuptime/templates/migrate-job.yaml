@@ -1,4 +1,12 @@
-{{- if and .Values.migrate.enabled (not .Values.deployment.disableDeployments) }}
+{{- $migrationId := default .Values.image.tag .Values.migrate.id | toString -}}
+{{- $migrationSuffix := regexReplaceAll "[^a-z0-9-]+" (lower $migrationId) "-" | trimAll "-" | trunc 40 | trimSuffix "-" -}}
+{{- $migrationJobName := printf "%s-migrate-%s" .Release.Name $migrationSuffix | trunc 63 | trimSuffix "-" -}}
+{{- $existingMigrationJob := lookup "batch/v1" "Job" .Release.Namespace $migrationJobName -}}
+{{- $migrationSucceeded := false -}}
+{{- if $existingMigrationJob -}}
+{{- $migrationSucceeded = gt (int (dig "status" "succeeded" 0 $existingMigrationJob)) 0 -}}
+{{- end -}}
+{{- if and .Values.migrate.enabled (not .Values.deployment.disableDeployments) (not $migrationSucceeded) }}
 {{- /*
   Block the deploy on migrations (as a Helm hook) only when migrate.hook is true.
   When false (default), render a regular async Job for BOTH install and upgrade,
@@ -11,7 +19,7 @@
 # =============================================================================
 # Database migration Job.
 #
-# Runs schema + data migrations ONCE per release, in a single dedicated pod,
+# Runs schema + data migrations ONCE per schema identifier, in a single pod,
 # instead of on every app/worker/nginx replica on boot. The runtime pods are
 # then gated off (RUN_DATABASE_MIGRATIONS_ON_BOOT=false). Since the runners
 # take no advisory lock, this Job is what keeps two replicas from running the
@@ -23,7 +31,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ .Release.Name }}-migrate-{{ .Release.Revision }}
+  name: {{ $migrationJobName }}
   namespace: {{ .Release.Namespace }}
   labels:
     app: {{ .Release.Name }}-migrate

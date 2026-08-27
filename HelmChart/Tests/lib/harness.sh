@@ -107,7 +107,8 @@ harness_install_unittest_plugin() {
         return 0
     fi
     echo "Installing helm-unittest ${HELM_UNITTEST_VERSION}..."
-    helm plugin install https://github.com/helm-unittest/helm-unittest --version "$HELM_UNITTEST_VERSION"
+    helm plugin install https://github.com/helm-unittest/helm-unittest \
+        --version "$HELM_UNITTEST_VERSION" --verify=false
 }
 
 harness_install_kubectl() {
