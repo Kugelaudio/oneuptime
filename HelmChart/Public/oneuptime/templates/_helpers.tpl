@@ -42,7 +42,13 @@ limit so the two never drift apart. Unsuffixed input is treated as bytes.
   {{- $values := .Values -}}
   {{- $service := .ServiceName -}}
   {{- $imageName := default $service .ImageName -}}
-  {{- printf "%s/%s/%s:%s" $values.image.registry $values.image.repository $imageName (include "oneuptime.image.tag" (dict "Values" $values)) -}}
+  {{- /* KugelAudio modification: allow one forked component without mirroring the complete image fleet. */ -}}
+  {{- $overrides := default dict $values.image.overrides -}}
+  {{- $override := default dict (index $overrides $imageName) -}}
+  {{- $registry := default $values.image.registry $override.registry -}}
+  {{- $repository := default $values.image.repository $override.repository -}}
+  {{- $tag := default (include "oneuptime.image.tag" (dict "Values" $values)) $override.tag -}}
+  {{- printf "%s/%s/%s:%s" $registry $repository $imageName $tag -}}
 {{- end -}}
 
 {{/*
