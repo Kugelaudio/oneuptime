@@ -35,6 +35,8 @@
     "subtitle": "हजारों व्यवसायों से जुड़ें जो हमेशा ऑनलाइन रहने के लिए OneUptime का उपयोग करते हैं।",
     "submitButton": "लॉगिन",
     "forgotPassword": "पासवर्ड भूल गए?",
+    "signInWithGoogle": "Google से साइन इन करें",
+    "or": "या",
     "useSso": "इसके बजाय एकल साइन-ऑन (SSO) का उपयोग करें",
     "noAccountPrompt": "खाता नहीं है?",
     "registerLink": "पंजीकरण करें।",

@@ -35,6 +35,8 @@
     "subtitle": "Gå med i tusentals företag som använder OneUptime för att hålla dem online hela tiden.",
     "submitButton": "Logga in",
     "forgotPassword": "Glömt lösenord?",
+    "signInWithGoogle": "Logga in med Google",
+    "or": "eller",
     "useSso": "Använd istället enkel inloggning (SSO)",
     "noAccountPrompt": "Har du inget konto?",
     "registerLink": "Registrera dig.",

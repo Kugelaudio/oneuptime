@@ -35,6 +35,8 @@
     "subtitle": "加入數千家使用 OneUptime 保持隨時在線的企業。",
     "submitButton": "登入",
     "forgotPassword": "忘記密碼？",
+    "signInWithGoogle": "使用 Google 登入",
+    "or": "或",
     "useSso": "改用單一登入（SSO）",
     "noAccountPrompt": "沒有帳號？",
     "registerLink": "註冊。",

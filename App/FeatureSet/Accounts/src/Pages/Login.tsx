@@ -43,6 +43,7 @@ import Base64 from "Common/Utils/Base64";
 import ErrorMessage from "Common/UI/Components/ErrorMessage/ErrorMessage";
 import ComponentLoader from "Common/UI/Components/ComponentLoader/ComponentLoader";
 import QRCodeElement from "Common/UI/Components/QR/QR";
+import GoogleSignInButton from "../Components/GoogleSignInButton";
 
 /*
  * The misc bag travels on the wire under `_miscData` — the key
@@ -374,105 +375,108 @@ const LoginPage: () => JSX.Element = () => {
       <div className="mt-6 sm:mt-8 w-full max-w-md mx-auto">
         <div className="bg-white py-6 px-4 shadow-sm sm:shadow sm:rounded-lg sm:py-8 sm:px-10 rounded-lg">
           {!showTwoFactorAuth && !totpEnrolment && (
-            <ModelForm<User>
-              modelType={User}
-              id="login-form"
-              name="Login"
-              fields={loginFields}
-              createOrUpdateApiUrl={apiUrl}
-              formType={FormType.Create}
-              submitButtonText={t("login.submitButton")}
-              onBeforeCreate={(data: User, miscDataProps: JSONObject) => {
-                if (isCaptchaEnabled) {
-                  const captchaToken: string | undefined = (
-                    miscDataProps["captchaToken"] as string | undefined
-                  )
-                    ?.toString()
-                    .trim();
+            <>
+              <GoogleSignInButton />
+              <ModelForm<User>
+                modelType={User}
+                id="login-form"
+                name="Login"
+                fields={loginFields}
+                createOrUpdateApiUrl={apiUrl}
+                formType={FormType.Create}
+                submitButtonText={t("login.submitButton")}
+                onBeforeCreate={(data: User, miscDataProps: JSONObject) => {
+                  if (isCaptchaEnabled) {
+                    const captchaToken: string | undefined = (
+                      miscDataProps["captchaToken"] as string | undefined
+                    )
+                      ?.toString()
+                      .trim();
 
-                  if (!captchaToken) {
-                    throw new Error(t("captcha.errorOnSignIn"));
+                    if (!captchaToken) {
+                      throw new Error(t("captcha.errorOnSignIn"));
+                    }
+
+                    miscDataProps["captchaToken"] = captchaToken;
+                    setShouldResetCaptcha(true);
                   }
 
-                  miscDataProps["captchaToken"] = captchaToken;
-                  setShouldResetCaptcha(true);
-                }
+                  setInitialValues(User.toJSON(data, User));
+                  return Promise.resolve(data);
+                }}
+                onLoadingChange={(loading: boolean) => {
+                  if (!isCaptchaEnabled) {
+                    return;
+                  }
 
-                setInitialValues(User.toJSON(data, User));
-                return Promise.resolve(data);
-              }}
-              onLoadingChange={(loading: boolean) => {
-                if (!isCaptchaEnabled) {
-                  return;
-                }
+                  if (!loading && shouldResetCaptcha) {
+                    setShouldResetCaptcha(false);
+                    handleCaptchaReset();
+                  }
+                }}
+                onSuccess={(
+                  value: User | JSONObject,
+                  miscData: JSONObject | undefined,
+                ) => {
+                  /*
+                   * Checked BEFORE the two-factor-method lists below, and the
+                   * order is load-bearing rather than stylistic. A user being
+                   * forced to enrol has ZERO methods set up, so that condition
+                   * is false for them -- putting this second would let control
+                   * fall straight through to login() and a redirect into a
+                   * dashboard the server never authorised, with no session
+                   * behind it.
+                   */
+                  if (miscData && miscData["twoFactorEnrolmentRequired"]) {
+                    setTotpEnrolment({
+                      twoFactorAuthId: miscData["twoFactorAuthId"] as string,
+                      twoFactorOtpUrl: miscData["twoFactorOtpUrl"] as string,
+                    });
+                    return;
+                  }
 
-                if (!loading && shouldResetCaptcha) {
-                  setShouldResetCaptcha(false);
-                  handleCaptchaReset();
-                }
-              }}
-              onSuccess={(
-                value: User | JSONObject,
-                miscData: JSONObject | undefined,
-              ) => {
-                /*
-                 * Checked BEFORE the two-factor-method lists below, and the
-                 * order is load-bearing rather than stylistic. A user being
-                 * forced to enrol has ZERO methods set up, so that condition
-                 * is false for them -- putting this second would let control
-                 * fall straight through to login() and a redirect into a
-                 * dashboard the server never authorised, with no session
-                 * behind it.
-                 */
-                if (miscData && miscData["twoFactorEnrolmentRequired"]) {
-                  setTotpEnrolment({
-                    twoFactorAuthId: miscData["twoFactorAuthId"] as string,
-                    twoFactorOtpUrl: miscData["twoFactorOtpUrl"] as string,
-                  });
-                  return;
-                }
-
-                if (
-                  miscData &&
-                  ((((miscData as JSONObject)["totpAuthList"] as JSONArray)
-                    ?.length || 0) > 0 ||
-                    (((miscData as JSONObject)["webAuthnList"] as JSONArray)
-                      ?.length || 0) > 0)
-                ) {
-                  const totpAuthList: Array<UserTotpAuth> =
-                    UserTotpAuth.fromJSONArray(
-                      (miscData as JSONObject)["totpAuthList"] as JSONArray,
-                      UserTotpAuth,
+                  if (
+                    miscData &&
+                    ((((miscData as JSONObject)["totpAuthList"] as JSONArray)
+                      ?.length || 0) > 0 ||
+                      (((miscData as JSONObject)["webAuthnList"] as JSONArray)
+                        ?.length || 0) > 0)
+                  ) {
+                    const totpAuthList: Array<UserTotpAuth> =
+                      UserTotpAuth.fromJSONArray(
+                        (miscData as JSONObject)["totpAuthList"] as JSONArray,
+                        UserTotpAuth,
+                      );
+                    const webAuthnList: Array<UserWebAuthn> =
+                      UserWebAuthn.fromJSONArray(
+                        (miscData as JSONObject)["webAuthnList"] as JSONArray,
+                        UserWebAuthn,
+                      );
+                    setTotpAuthList(totpAuthList);
+                    setWebAuthnList(webAuthnList);
+                    setBackupCodeCount(
+                      Number((miscData as JSONObject)["backupCodeCount"] || 0),
                     );
-                  const webAuthnList: Array<UserWebAuthn> =
-                    UserWebAuthn.fromJSONArray(
-                      (miscData as JSONObject)["webAuthnList"] as JSONArray,
-                      UserWebAuthn,
-                    );
-                  setTotpAuthList(totpAuthList);
-                  setWebAuthnList(webAuthnList);
-                  setBackupCodeCount(
-                    Number((miscData as JSONObject)["backupCodeCount"] || 0),
-                  );
-                  setShowTwoFactorAuth(true);
-                  return;
-                }
+                    setShowTwoFactorAuth(true);
+                    return;
+                  }
 
-                login(value as User, miscData as JSONObject);
-              }}
-              maxPrimaryButtonWidth={true}
-              footer={
-                <div className="actions text-center mt-4 hover:underline fw-semibold">
-                  <div>
-                    <Link to={new Route("/accounts/sso")}>
-                      <div className="text-indigo-500 hover:text-indigo-900 cursor-pointer text-sm">
-                        {t("login.useSso")}
-                      </div>
-                    </Link>
+                  login(value as User, miscData as JSONObject);
+                }}
+                maxPrimaryButtonWidth={true}
+                footer={
+                  <div className="actions text-center mt-4 hover:underline fw-semibold">
+                    <div>
+                      <Link to={new Route("/accounts/sso")}>
+                        <div className="text-indigo-500 hover:text-indigo-900 cursor-pointer text-sm">
+                          {t("login.useSso")}
+                        </div>
+                      </Link>
+                    </div>
                   </div>
-                </div>
-              }
-            />
+                }
+              />
+            </>
           )}
 
           {showTwoFactorAuth &&

@@ -35,6 +35,8 @@
     "subtitle": "Join thousands of business that use OneUptime to help them stay online all the time.",
     "submitButton": "Login",
     "forgotPassword": "Forgot password?",
+    "signInWithGoogle": "Sign in with Google",
+    "or": "or",
     "useSso": "Use single sign-on (SSO) instead",
     "noAccountPrompt": "Don't have an account?",
     "registerLink": "Register.",

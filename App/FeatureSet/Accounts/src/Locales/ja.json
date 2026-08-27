@@ -35,6 +35,8 @@
     "subtitle": "OneUptimeを使って常時オンラインを維持している何千ものビジネスに参加しましょう。",
     "submitButton": "ログイン",
     "forgotPassword": "パスワードをお忘れですか？",
+    "signInWithGoogle": "Google でログイン",
+    "or": "または",
     "useSso": "代わりにシングルサインオン（SSO）を使用する",
     "noAccountPrompt": "アカウントをお持ちでない方は",
     "registerLink": "登録。",

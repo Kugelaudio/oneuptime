@@ -35,6 +35,8 @@
     "subtitle": "Unisciti a migliaia di aziende che usano OneUptime per rimanere sempre online.",
     "submitButton": "Accedi",
     "forgotPassword": "Password dimenticata?",
+    "signInWithGoogle": "Accedi con Google",
+    "or": "oppure",
     "useSso": "Usa invece il Single Sign-On (SSO)",
     "noAccountPrompt": "Non hai un account?",
     "registerLink": "Registrati.",

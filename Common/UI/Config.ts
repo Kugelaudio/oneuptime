@@ -55,6 +55,9 @@ export const BILLING_PUBLIC_KEY: string = env("BILLING_PUBLIC_KEY") || "";
 export const CAPTCHA_ENABLED: boolean = env("CAPTCHA_ENABLED") === "true";
 export const CAPTCHA_SITE_KEY: string = env("CAPTCHA_SITE_KEY") || "";
 
+export const GoogleOidcLoginUrl: string =
+  env("PUBLIC_GOOGLE_OIDC_LOGIN_URL") || "";
+
 // VAPID Configuration for Push Notifications
 export const VAPID_PUBLIC_KEY: string = env("VAPID_PUBLIC_KEY") || "";
 
