@@ -35,6 +35,8 @@
     "subtitle": "Únase a miles de empresas que utilizan OneUptime para mantenerse en línea todo el tiempo.",
     "submitButton": "Iniciar sesión",
     "forgotPassword": "¿Olvidó su contraseña?",
+    "signInWithGoogle": "Iniciar sesión con Google",
+    "or": "o",
     "useSso": "Usar inicio de sesión único (SSO) en su lugar",
     "noAccountPrompt": "¿No tiene una cuenta?",
     "registerLink": "Registrarse.",
