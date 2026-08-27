@@ -31,7 +31,10 @@ import {
 } from "typeorm";
 
 @TableEditionAccessControl({
-  requiresEnterprise: true,
+  // KugelAudio modification: project-level OIDC is available in our
+  // self-hosted Community build. Other identity features keep their upstream
+  // Enterprise edition gates.
+  requiresEnterprise: false,
 })
 @TableBillingAccessControl({
   create: PlanType.Scale,
