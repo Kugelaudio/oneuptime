@@ -1,0 +1,55 @@
+# KugelAudio modification: the forked app image must not force us to mirror
+# unrelated upstream OneUptime images.
+suite: per-component image overrides
+release:
+  name: oneuptime
+  namespace: oneuptime
+tests:
+  - it: uses the app override for the application deployment
+    templates:
+      - templates/app.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      image.registry: docker.io
+      image.repository: oneuptime
+      image.tag: 12.0.24
+      image.overrides.app.image: ghcr.io/kugelaudio/oneuptime-app
+      image.overrides.app.tag: 12.0.24-kugelaudio-test
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/kugelaudio/oneuptime-app:12.0.24-kugelaudio-test
+
+  - it: reuses the app override for the worker deployment
+    templates:
+      - templates/worker.yaml
+    set:
+      worker.enabled: true
+      image.registry: docker.io
+      image.repository: oneuptime
+      image.tag: 12.0.24
+      image.overrides.app.image: ghcr.io/kugelaudio/oneuptime-app
+      image.overrides.app.tag: 12.0.24-kugelaudio-test
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/kugelaudio/oneuptime-app:12.0.24-kugelaudio-test
+
+  - it: leaves unrelated components on the upstream image
+    templates:
+      - templates/nginx.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      image.registry: docker.io
+      image.repository: oneuptime
+      image.tag: 12.0.24
+      image.overrides.app.image: ghcr.io/kugelaudio/oneuptime-app
+      image.overrides.app.tag: 12.0.24-kugelaudio-test
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/oneuptime/nginx:12.0.24

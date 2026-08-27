@@ -1384,10 +1384,31 @@
                         "Never"
                     ]
                 },
-                "tag": {
-                    "type": "string"
-                },
-                "type": {
+    "tag": {
+      "type": "string"
+    },
+    "overrides": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": "string"
+          },
+          "registry": {
+            "type": "string"
+          },
+          "repository": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "type": {
                     "type": "string",
                     "enum": [
                         "community-edition",
