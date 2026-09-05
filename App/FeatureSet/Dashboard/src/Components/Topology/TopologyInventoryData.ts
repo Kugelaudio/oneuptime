@@ -2,6 +2,9 @@ import InventoryItem from "Common/Models/DatabaseModels/InventoryItem";
 import InventoryItemRelationship from "Common/Models/DatabaseModels/InventoryItemRelationship";
 import Query from "Common/Types/BaseDatabase/Query";
 import ObjectID from "Common/Types/ObjectID";
+import EntityType from "Common/Types/Telemetry/EntityType";
+import EntityRelationshipType from "Common/Types/Telemetry/EntityRelationshipType";
+import GreaterThanOrEqual from "Common/Types/BaseDatabase/GreaterThanOrEqual";
 
 /**
  * Inventory is the durable catalog behind Topology. The time picker limits
@@ -10,10 +13,27 @@ import ObjectID from "Common/Types/ObjectID";
  */
 export function buildTopologyInventoryItemQuery(
   projectId: ObjectID,
+  serviceMap: boolean = false,
 ): Query<InventoryItem> {
   return {
     projectId,
     isArchived: false,
+    ...(serviceMap ? { entityType: EntityType.Service } : {}),
+  };
+}
+
+/** Filter before pagination: containment rows must not crowd out service calls. */
+export function buildTopologyRelationshipQuery(
+  projectId: ObjectID,
+  since: Date,
+  serviceMap: boolean,
+): Query<InventoryItemRelationship> {
+  return {
+    projectId,
+    lastSeenAt: new GreaterThanOrEqual<Date>(since),
+    ...(serviceMap
+      ? { relationshipType: EntityRelationshipType.DependsOn }
+      : {}),
   };
 }
 
