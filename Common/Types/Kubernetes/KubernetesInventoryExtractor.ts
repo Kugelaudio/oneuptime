@@ -338,6 +338,132 @@ function deriveNodeConditionFlags(
   };
 }
 
+function conditionStatus(
+  conditions: Array<KubernetesCondition> | undefined,
+  type: string,
+): string | null {
+  if (!Array.isArray(conditions)) {
+    return null;
+  }
+  for (const c of conditions) {
+    if (c && c.type === type && typeof c.status === "string" && c.status) {
+      return c.status;
+    }
+  }
+  return null;
+}
+
+/*
+ * The object parsers default every absent counter to 0, so all-zero
+ * counters are indistinguishable from a status block the agent never
+ * reported. Callers pass `statusObserved` to say the controller
+ * published at least one non-zero counter; without it we stay unknown
+ * rather than report a workload we never saw as Not Ready.
+ */
+function replicaCountsReady(data: {
+  desired: number | undefined;
+  ready: number | undefined;
+  statusObserved: boolean;
+}): boolean | null {
+  if (typeof data.desired !== "number" || typeof data.ready !== "number") {
+    return null;
+  }
+  if (data.desired <= 0 || !data.statusObserved) {
+    return null;
+  }
+  return data.ready >= data.desired;
+}
+
+function anyPositive(values: Array<number | undefined>): boolean {
+  for (const value of values) {
+    if (typeof value === "number" && value > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Readiness for the controller workloads. Without this every
+ * Deployment, StatefulSet, DaemonSet and Job row keeps a null
+ * isReady, which the dashboard renders as "Unknown" for a healthy
+ * fleet. Readiness comes from the controller's own condition when it
+ * published one and from the replica counters otherwise; anything we
+ * cannot decide stays null, because "Unknown" is the honest answer for
+ * a status we never observed.
+ */
+function deriveWorkloadReadiness(
+  kind: string,
+  parsed: AnyKubernetesObject,
+): boolean | null {
+  if (kind === "Deployment") {
+    const deployment: KubernetesDeploymentObject =
+      parsed as KubernetesDeploymentObject;
+    const available: string | null = conditionStatus(
+      deployment.status?.conditions,
+      "Available",
+    );
+    if (available === "True") {
+      return true;
+    }
+    if (available === "False") {
+      return false;
+    }
+    return replicaCountsReady({
+      desired: deployment.spec?.replicas,
+      ready: deployment.status?.availableReplicas,
+      statusObserved: anyPositive([
+        deployment.status?.replicas,
+        deployment.status?.readyReplicas,
+        deployment.status?.availableReplicas,
+        deployment.status?.unavailableReplicas,
+      ]),
+    });
+  }
+
+  if (kind === "StatefulSet") {
+    const statefulSet: KubernetesStatefulSetObject =
+      parsed as KubernetesStatefulSetObject;
+    return replicaCountsReady({
+      desired: statefulSet.spec?.replicas,
+      ready: statefulSet.status?.readyReplicas,
+      statusObserved: anyPositive([
+        statefulSet.status?.replicas,
+        statefulSet.status?.readyReplicas,
+        statefulSet.status?.currentReplicas,
+      ]),
+    });
+  }
+
+  if (kind === "DaemonSet") {
+    const daemonSet: KubernetesDaemonSetObject =
+      parsed as KubernetesDaemonSetObject;
+    return replicaCountsReady({
+      desired: daemonSet.status?.desiredNumberScheduled,
+      ready: daemonSet.status?.numberReady,
+      /*
+       * desiredNumberScheduled itself comes from status, so a positive
+       * desired count already proves the controller published status.
+       */
+      statusObserved: true,
+    });
+  }
+
+  if (kind === "Job") {
+    const job: KubernetesJobObject = parsed as KubernetesJobObject;
+    if (conditionStatus(job.status?.conditions, "Failed") === "True") {
+      return false;
+    }
+    if (conditionStatus(job.status?.conditions, "Complete") === "True") {
+      return true;
+    }
+    // Still running, or never observed: neither ready nor failed.
+    return null;
+  }
+
+  return null;
+}
+
 function parseByResourceType(
   resourceType: string,
   kvList: JSONObject,
@@ -468,7 +594,10 @@ export function extractInventoryResource(data: {
     name: metadata.name,
     uid: metadata.uid || null,
     phase,
-    isReady: nodeFlags.isReady,
+    isReady:
+      kind === "Node"
+        ? nodeFlags.isReady
+        : deriveWorkloadReadiness(kind, parsed),
     hasMemoryPressure: nodeFlags.hasMemoryPressure,
     hasDiskPressure: nodeFlags.hasDiskPressure,
     hasPidPressure: nodeFlags.hasPidPressure,
