@@ -127,3 +127,93 @@ describe.each(TOOLTIP_CASES)("$name tooltip", ({ Tooltip }: TooltipCase) => {
     expect(container.firstChild).toBeNull();
   });
 });
+
+/*
+ * The rows of a grouped chart used to read
+ * "resource.k8s.cluster.name=kugel-eu-prod, deployment=web, state=available"
+ * each, on one unwrapped line: the shared keys consumed the card and pushed
+ * the value — the reason to hover at all — outside it. The keys belong in the
+ * header, once, and the value must stay on the row.
+ */
+describe.each(TOOLTIP_CASES)(
+  "$name tooltip grouped-series labels",
+  ({ Tooltip }: TooltipCase) => {
+    const GROUPED_PAYLOAD: Array<{
+      category: string;
+      value: number;
+      index: string;
+      color: string;
+      payload: Record<string, unknown>;
+    }> = [
+      {
+        category:
+          "resource.k8s.cluster.name=kugel-eu-prod, deployment=web, state=available",
+        value: 2,
+        index: "19:49",
+        color: "blue",
+        payload: {},
+      },
+      {
+        category:
+          "resource.k8s.cluster.name=kugelaudio-prod-us-west-2, deployment=web, state=desired",
+        value: 1,
+        index: "19:49",
+        color: "green",
+        payload: {},
+      },
+    ];
+
+    test("prints the keys once and leaves the values on the rows", () => {
+      const { container } = render(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        <Tooltip
+          active={true}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          payload={GROUPED_PAYLOAD as any}
+          label="19:49"
+          valueFormatter={(value: number): string => {
+            return `${value} replicas`;
+          }}
+        />,
+      );
+
+      expect(
+        screen.getByText("resource.k8s.cluster.name · deployment · state"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("kugel-eu-prod · web · available"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("kugelaudio-prod-us-west-2 · web · desired"),
+      ).toBeInTheDocument();
+
+      // The reading itself is still rendered next to its series.
+      expect(container.textContent).toContain("2 replicas");
+
+      // The full series name stays reachable on hover.
+      expect(
+        screen.getByTitle(
+          "resource.k8s.cluster.name=kugel-eu-prod, deployment=web, state=available",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    test("leaves ungrouped series names alone", () => {
+      render(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        <Tooltip
+          active={true}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          payload={buildPayload(2) as any}
+          label="10:00"
+          valueFormatter={(value: number): string => {
+            return String(value);
+          }}
+        />,
+      );
+
+      expect(screen.getByText("host-01")).toBeInTheDocument();
+      expect(screen.queryByText(/ · /)).not.toBeInTheDocument();
+    });
+  },
+);
