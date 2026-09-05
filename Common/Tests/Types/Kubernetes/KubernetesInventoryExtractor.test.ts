@@ -1,4 +1,6 @@
+import { JSONObject } from "../../../Types/JSON";
 import {
+  ExtractedInventoryRecord,
   INVENTORIED_RESOURCE_TYPES,
   ParsedKubernetesContainerRow,
   extractContainersFromPod,
@@ -227,5 +229,312 @@ describe("extractInventoryResource", () => {
         lastSeenAt,
       }),
     ).toBeNull();
+  });
+});
+
+/*
+ * OTLP value-wrapper builders, mirroring the wire encoding the
+ * k8sobjects receiver ships an object in.
+ */
+function kv(entries: Array<[string, JSONObject]>): JSONObject {
+  return {
+    values: entries.map(([key, value]: [string, JSONObject]) => {
+      return { key, value };
+    }),
+  };
+}
+
+function str(value: string): JSONObject {
+  return { stringValue: value };
+}
+
+function obj(kvList: JSONObject): JSONObject {
+  return { kvlistValue: kvList };
+}
+
+function arrOfObjects(items: Array<JSONObject>): JSONObject {
+  return {
+    arrayValue: {
+      values: items.map((item: JSONObject) => {
+        return { kvlistValue: item };
+      }),
+    },
+  };
+}
+
+// A watch-mode log body: the object sits under the "object" key.
+function logBodyFor(objectKvList: JSONObject): string {
+  return JSON.stringify({
+    kvlistValue: kv([["object", obj(objectKvList)]]),
+  });
+}
+
+function condition(type: string, status: string): JSONObject {
+  return kv([
+    ["type", str(type)],
+    ["status", str(status)],
+  ]);
+}
+
+function readinessOf(data: {
+  resourceType: string;
+  objectKvList: JSONObject;
+}): boolean | null {
+  const extracted: ExtractedInventoryRecord | null = extractInventoryResource({
+    resourceType: data.resourceType,
+    logBody: logBodyFor(data.objectKvList),
+    lastSeenAt,
+  });
+  expect(extracted).not.toBeNull();
+  return extracted!.resource.isReady;
+}
+
+function deployment(data: {
+  specReplicas?: string;
+  statusEntries?: Array<[string, JSONObject]>;
+}): JSONObject {
+  const entries: Array<[string, JSONObject]> = [
+    ["metadata", obj(kv([["name", str("api")]]))],
+  ];
+  if (data.specReplicas !== undefined) {
+    entries.push(["spec", obj(kv([["replicas", str(data.specReplicas)]]))]);
+  }
+  if (data.statusEntries) {
+    entries.push(["status", obj(kv(data.statusEntries))]);
+  }
+  return kv(entries);
+}
+
+/*
+ * Readiness is what the dashboard honeycombs color by. Every workload
+ * kind below used to come out of ingest with a null isReady, so a
+ * healthy production fleet rendered as a wall of grey "Unknown" tiles.
+ */
+describe("extractInventoryResource readiness", () => {
+  test("Deployment is ready when the Available condition is True", () => {
+    expect(
+      readinessOf({
+        resourceType: "deployments",
+        objectKvList: deployment({
+          specReplicas: "3",
+          statusEntries: [
+            ["replicas", str("3")],
+            ["readyReplicas", str("3")],
+            ["availableReplicas", str("3")],
+            [
+              "conditions",
+              arrOfObjects([
+                condition("Available", "True"),
+                condition("Progressing", "True"),
+              ]),
+            ],
+          ],
+        }),
+      }),
+    ).toBe(true);
+  });
+
+  test("Deployment is not ready when the Available condition is False", () => {
+    expect(
+      readinessOf({
+        resourceType: "deployments",
+        objectKvList: deployment({
+          specReplicas: "3",
+          statusEntries: [
+            ["replicas", str("3")],
+            ["availableReplicas", str("0")],
+            ["conditions", arrOfObjects([condition("Available", "False")])],
+          ],
+        }),
+      }),
+    ).toBe(false);
+  });
+
+  test("Deployment without conditions falls back to available vs desired replicas", () => {
+    expect(
+      readinessOf({
+        resourceType: "deployments",
+        objectKvList: deployment({
+          specReplicas: "2",
+          statusEntries: [
+            ["replicas", str("2")],
+            ["availableReplicas", str("2")],
+          ],
+        }),
+      }),
+    ).toBe(true);
+
+    expect(
+      readinessOf({
+        resourceType: "deployments",
+        objectKvList: deployment({
+          specReplicas: "2",
+          statusEntries: [
+            ["replicas", str("2")],
+            ["availableReplicas", str("1")],
+          ],
+        }),
+      }),
+    ).toBe(false);
+  });
+
+  test("Deployment with neither conditions nor a status block stays unknown", () => {
+    expect(
+      readinessOf({
+        resourceType: "deployments",
+        objectKvList: deployment({ specReplicas: "2" }),
+      }),
+    ).toBeNull();
+  });
+
+  test("Deployment reporting only unavailable replicas is not ready", () => {
+    expect(
+      readinessOf({
+        resourceType: "deployments",
+        objectKvList: deployment({
+          specReplicas: "2",
+          statusEntries: [["unavailableReplicas", str("2")]],
+        }),
+      }),
+    ).toBe(false);
+  });
+
+  test("StatefulSet compares ready replicas against the desired count", () => {
+    const statefulSet: (ready: string) => JSONObject = (
+      ready: string,
+    ): JSONObject => {
+      return kv([
+        ["metadata", obj(kv([["name", str("db")]]))],
+        ["spec", obj(kv([["replicas", str("3")]]))],
+        [
+          "status",
+          obj(
+            kv([
+              ["replicas", str("3")],
+              ["readyReplicas", str(ready)],
+            ]),
+          ),
+        ],
+      ]);
+    };
+
+    expect(
+      readinessOf({
+        resourceType: "statefulsets",
+        objectKvList: statefulSet("3"),
+      }),
+    ).toBe(true);
+    expect(
+      readinessOf({
+        resourceType: "statefulsets",
+        objectKvList: statefulSet("2"),
+      }),
+    ).toBe(false);
+  });
+
+  test("StatefulSet whose status was never reported stays unknown", () => {
+    expect(
+      readinessOf({
+        resourceType: "statefulsets",
+        objectKvList: kv([
+          ["metadata", obj(kv([["name", str("db")]]))],
+          ["spec", obj(kv([["replicas", str("3")]]))],
+        ]),
+      }),
+    ).toBeNull();
+  });
+
+  test("DaemonSet compares numberReady against desiredNumberScheduled", () => {
+    const daemonSet: (numberReady: string) => JSONObject = (
+      numberReady: string,
+    ): JSONObject => {
+      return kv([
+        ["metadata", obj(kv([["name", str("agent")]]))],
+        [
+          "status",
+          obj(
+            kv([
+              ["desiredNumberScheduled", str("4")],
+              ["numberReady", str(numberReady)],
+            ]),
+          ),
+        ],
+      ]);
+    };
+
+    expect(
+      readinessOf({ resourceType: "daemonsets", objectKvList: daemonSet("4") }),
+    ).toBe(true);
+    expect(
+      readinessOf({ resourceType: "daemonsets", objectKvList: daemonSet("3") }),
+    ).toBe(false);
+  });
+
+  test("Job readiness follows its Complete and Failed conditions", () => {
+    const job: (conditions: Array<JSONObject>) => JSONObject = (
+      conditions: Array<JSONObject>,
+    ): JSONObject => {
+      return kv([
+        ["metadata", obj(kv([["name", str("backfill")]]))],
+        ["status", obj(kv([["conditions", arrOfObjects(conditions)]]))],
+      ]);
+    };
+
+    expect(
+      readinessOf({
+        resourceType: "jobs",
+        objectKvList: job([condition("Complete", "True")]),
+      }),
+    ).toBe(true);
+    expect(
+      readinessOf({
+        resourceType: "jobs",
+        objectKvList: job([condition("Failed", "True")]),
+      }),
+    ).toBe(false);
+    // Still running: neither condition has fired yet.
+    expect(
+      readinessOf({ resourceType: "jobs", objectKvList: job([]) }),
+    ).toBeNull();
+  });
+
+  test("kinds without a readiness concept stay unknown", () => {
+    expect(
+      readinessOf({
+        resourceType: "cronjobs",
+        objectKvList: kv([
+          ["metadata", obj(kv([["name", str("nightly")]]))],
+          ["spec", obj(kv([["schedule", str("0 3 * * *")]]))],
+        ]),
+      }),
+    ).toBeNull();
+
+    expect(
+      readinessOf({
+        resourceType: "namespaces",
+        objectKvList: kv([["metadata", obj(kv([["name", str("backend")]]))]]),
+      }),
+    ).toBeNull();
+  });
+
+  test("Node readiness still comes from its Ready condition", () => {
+    const node: (status: string) => JSONObject = (
+      status: string,
+    ): JSONObject => {
+      return kv([
+        ["metadata", obj(kv([["name", str("node-a")]]))],
+        [
+          "status",
+          obj(kv([["conditions", arrOfObjects([condition("Ready", status)])]])),
+        ],
+      ]);
+    };
+
+    expect(
+      readinessOf({ resourceType: "nodes", objectKvList: node("True") }),
+    ).toBe(true);
+    expect(
+      readinessOf({ resourceType: "nodes", objectKvList: node("False") }),
+    ).toBe(false);
   });
 });
