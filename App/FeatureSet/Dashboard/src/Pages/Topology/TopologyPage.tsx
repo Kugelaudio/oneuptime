@@ -1,7 +1,10 @@
 import PageComponentProps from "../PageComponentProps";
 import ServiceMapGraph from "../../Components/Topology/ServiceMapGraph";
 import InfrastructureGraph from "../../Components/Topology/InfrastructureGraph";
-import { buildTopologyInventoryItemQuery } from "../../Components/Topology/TopologyInventoryData";
+import {
+  buildTopologyInventoryItemQuery,
+  buildTopologyRelationshipQuery,
+} from "../../Components/Topology/TopologyInventoryData";
 import NetworkTopologyExplorer from "../../Components/Topology/NetworkTopologyExplorer";
 import Page from "Common/UI/Components/Page/Page";
 import Tabs from "Common/UI/Components/Tabs/Tabs";
@@ -14,7 +17,6 @@ import RangeStartAndEndDateTime, {
 } from "Common/Types/Time/RangeStartAndEndDateTime";
 import TimeRange from "Common/Types/Time/TimeRange";
 import InBetween from "Common/Types/BaseDatabase/InBetween";
-import GreaterThanOrEqual from "Common/Types/BaseDatabase/GreaterThanOrEqual";
 import ListResult from "Common/Types/BaseDatabase/ListResult";
 import { LIMIT_PER_PROJECT } from "Common/Types/Database/LimitMax";
 import InventoryItem from "Common/Models/DatabaseModels/InventoryItem";
@@ -64,7 +66,20 @@ const TopologyPage: FunctionComponent<
   const [error, setError] = useState<string>("");
   const [isTruncated, setIsTruncated] = useState<boolean>(false);
 
+  const TAB_NAMES: Array<string> = ["Service Map", "Infrastructure", "Network"];
+  const initialTabName: string = (() => {
+    const fromUrl: string | null = Navigation.getQueryStringByName("tab");
+    return fromUrl && TAB_NAMES.includes(fromUrl) ? fromUrl : "Service Map";
+  })();
+  const [activeTabName, setActiveTabName] = useState<string>(initialTabName);
+  const isNetworkTab: boolean = activeTabName === "Network";
+
   useEffect(() => {
+    if (isNetworkTab) {
+      return;
+    }
+    let cancelled: boolean = false;
+    const serviceMap: boolean = activeTabName === "Service Map";
     const load: () => Promise<void> = async (): Promise<void> => {
       setIsLoading(true);
       setError("");
@@ -80,6 +95,7 @@ const TopologyPage: FunctionComponent<
             modelType: InventoryItem,
             query: buildTopologyInventoryItemQuery(
               ProjectUtil.getCurrentProjectId()!,
+              serviceMap,
             ),
             select: {
               _id: true,
@@ -97,10 +113,11 @@ const TopologyPage: FunctionComponent<
           }),
           ModelAPI.getList<InventoryItemRelationship>({
             modelType: InventoryItemRelationship,
-            query: {
-              projectId: ProjectUtil.getCurrentProjectId()!,
-              lastSeenAt: new GreaterThanOrEqual<Date>(window.startValue),
-            },
+            query: buildTopologyRelationshipQuery(
+              ProjectUtil.getCurrentProjectId()!,
+              window.startValue,
+              serviceMap,
+            ),
             select: {
               fromEntityKey: true,
               toEntityKey: true,
@@ -115,6 +132,9 @@ const TopologyPage: FunctionComponent<
           }),
         ]);
 
+        if (cancelled) {
+          return;
+        }
         setEntities(entityResult.data);
         setRelationships(relationshipResult.data);
         setIsTruncated(
@@ -122,26 +142,26 @@ const TopologyPage: FunctionComponent<
             relationshipResult.count > relationshipResult.data.length,
         );
       } catch (err) {
-        setError(API.getFriendlyMessage(err));
+        if (!cancelled) {
+          setError(API.getFriendlyMessage(err));
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     };
     void load();
-  }, [timeRange]);
+    return () => {
+      cancelled = true;
+    };
+  }, [timeRange, activeTabName, isNetworkTab]);
 
   /*
    * The Network tab is a live LLDP view (also surfaced under Network
    * Devices) — the telemetry time range does not apply to it, so the
    * picker hides while it is active.
    */
-  const TAB_NAMES: Array<string> = ["Service Map", "Infrastructure", "Network"];
-  const initialTabName: string = (() => {
-    const fromUrl: string | null = Navigation.getQueryStringByName("tab");
-    return fromUrl && TAB_NAMES.includes(fromUrl) ? fromUrl : "Service Map";
-  })();
-  const [activeTabName, setActiveTabName] = useState<string>(initialTabName);
-  const isNetworkTab: boolean = activeTabName === "Network";
 
   /*
    * Loading/error live INSIDE the telemetry tabs: the Network tab has an

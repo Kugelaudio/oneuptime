@@ -490,6 +490,11 @@ const DashboardChartComponentElement: FunctionComponent<ComponentProps> = (
           metricTypes={props.metricTypes}
           metricViewData={chartMetricViewData}
           hideCard={true}
+          compact={true}
+          chartHeightInPx={Math.max(
+            140,
+            props.dashboardComponentHeightInPx - (zoomWindow ? 155 : 120),
+          )}
           topNOverrideScope={topNOverrideScope}
           enableSeriesActions={enableSeriesActions}
           chartSyncId={props.chartSyncId}
