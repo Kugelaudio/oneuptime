@@ -288,9 +288,6 @@ const DashboardViewer: FunctionComponent<ComponentProps> = (
     }
 
     setIsLoading(false);
-
-    // Warm the autocomplete suggestion cache without blocking the render.
-    loadTelemetryAttributesInBackground();
   };
 
   useEffect(() => {

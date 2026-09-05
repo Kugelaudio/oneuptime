@@ -270,6 +270,80 @@ afterEach((): void => {
 });
 
 describe("DashboardVariableSelector", () => {
+  describe("configured telemetry attribute options", () => {
+    test("uses explicit choices without fetching and keeps attribute filtering", () => {
+      const state: ToolbarState = renderToolbar([
+        telemetryVariable({ customListValues: " prod, staging, ,prod " }),
+      ]);
+      expect(getTelemetryAttributeValuesMock).not.toHaveBeenCalled();
+      expect(getSelect()).not.toBeDisabled();
+      expect(optionLabels(getSelect())).toEqual(["All", "prod", "staging"]);
+      selectValue(getSelect(), "staging");
+      expect(state.variables[0]!.type).toBe(
+        DashboardVariableType.TelemetryAttribute,
+      );
+      expect(state.variables[0]!.attributeKey).toBe(ATTRIBUTE_KEY);
+      expect(resolvedFilter(state.variables[0]!)).toEqual({
+        scalar: "staging",
+      });
+      selectValue(getSelect(), "");
+      expect(resolvedFilter(state.variables[0]!)).toBeUndefined();
+    });
+
+    test("supports multiple configured choices without a metadata request", () => {
+      const state: ToolbarState = renderToolbar([
+        telemetryVariable({
+          customListValues: "prod,staging",
+          isMultiSelect: true,
+        }),
+      ]);
+      fireEvent.click(screen.getByRole("button"));
+      fireEvent.click(screen.getByRole("checkbox", { name: "staging" }));
+      expect(state.variables[0]!.selectedValues).toEqual(["staging"]);
+      expect(getTelemetryAttributeValuesMock).not.toHaveBeenCalled();
+    });
+
+    test("falls back to dynamic discovery for a blank configured list", async () => {
+      renderToolbar([telemetryVariable({ customListValues: " , , " })]);
+      const select: HTMLSelectElement = await waitForOptions();
+      expect(getTelemetryAttributeValuesMock).toHaveBeenCalledWith({
+        attributeKey: ATTRIBUTE_KEY,
+      });
+      expect(optionLabels(select)).toEqual(["All", ...OPTIONS]);
+    });
+
+    test("switching to configured choices cancels a pending metadata result", async () => {
+      let finish: (values: Array<string>) => void = () => {};
+      getTelemetryAttributeValuesMock.mockImplementation(() => {
+        return new Promise<Array<string>>(
+          (resolve: (values: Array<string>) => void) => {
+            finish = resolve;
+          },
+        );
+      });
+      const onChange: MockFunction = getJestMockFunction();
+      const { rerender } = render(
+        <DashboardVariableSelector
+          variables={[telemetryVariable()]}
+          onVariableValueChange={onChange}
+        />,
+      );
+      expect(getSelect()).toBeDisabled();
+      rerender(
+        <DashboardVariableSelector
+          variables={[telemetryVariable({ customListValues: "eu,us" })]}
+          onVariableValueChange={onChange}
+        />,
+      );
+      expect(getSelect()).not.toBeDisabled();
+      await act(async () => {
+        return finish(["obsolete"]);
+      });
+      expect(optionLabels(getSelect())).toEqual(["All", "eu", "us"]);
+      expect(getTelemetryAttributeValuesMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('picking "All" on a variable that has a default', () => {
     test('the select stays on "All" instead of snapping back to the default', async () => {
       const state: ToolbarState = renderToolbar([

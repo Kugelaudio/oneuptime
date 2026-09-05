@@ -102,6 +102,10 @@ jest.mock("../../../UI/Utils/API/API", () => {
  * <select> in the toolbar has real options to choose between.
  */
 const ATTRIBUTE_VALUE: string = "prod";
+const getTelemetryAttributesMock: jest.Mock<any, any> = jest.fn() as jest.Mock<
+  any,
+  any
+>;
 
 jest.mock(
   "../../../../App/FeatureSet/Dashboard/src/Components/Metrics/Utils/Metrics",
@@ -113,7 +117,7 @@ jest.mock(
           return Promise.resolve({ metricTypes: [], telemetryAttributes: [] });
         },
         getTelemetryAttributes: () => {
-          return Promise.resolve([]);
+          return getTelemetryAttributesMock();
         },
         getTelemetryAttributeValues: () => {
           return Promise.resolve(["prod", "staging"]);
@@ -381,6 +385,7 @@ const saveDashboard: SaveDashboardFunction = async (): Promise<void> => {
 
 beforeEach(() => {
   serverState.dashboardViewConfig = null;
+  getTelemetryAttributesMock.mockResolvedValue([]);
   setUrl("");
 
   getItemMock.mockImplementation(() => {
@@ -406,6 +411,18 @@ afterEach(() => {
 });
 
 describe("DashboardView — discarding edits reconciles dashboard variables", () => {
+  test("defers attribute metadata until edit mode and only requests it once", async () => {
+    seedServer(makeConfig());
+    await renderDashboard();
+    await settle();
+    expect(getTelemetryAttributesMock).not.toHaveBeenCalled();
+    await enterEditMode();
+    expect(getTelemetryAttributesMock).toHaveBeenCalledTimes(1);
+    await discardEdits();
+    await enterEditMode();
+    expect(getTelemetryAttributesMock).toHaveBeenCalledTimes(1);
+  });
+
   describe("a dashboard that saved no variables", () => {
     beforeEach(() => {
       seedServer(makeConfig());
