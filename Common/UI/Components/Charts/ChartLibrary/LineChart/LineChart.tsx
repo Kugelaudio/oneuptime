@@ -41,7 +41,12 @@ import { cx } from "../Utils/Cx";
 import { getYAxisDomain } from "../Utils/GetYAxisDomain";
 import { hasOnlyOneValueForKey } from "../Utils/HasOnlyOneValueForKey";
 import {
+  SeriesLabelDisplay,
+  getSeriesLabelDisplay,
+} from "../Utils/SeriesLabelDisplay";
+import {
   PreparedTooltipEntries,
+  isRenderableTooltipEntry,
   prepareTooltipEntries,
 } from "../Utils/TooltipEntries";
 import ChartCurve from "../../Types/ChartCurve";
@@ -509,11 +514,24 @@ const ChartTooltip: ({
       entries: legendPayload,
       overflowCount,
     }: PreparedTooltipEntries<PayloadItem> = prepareTooltipEntries(payload);
+
+    /*
+     * Grouped series repeat their attribute keys in every name; print the
+     * keys once below the timestamp and leave the values on the rows.
+     * Computed over the whole payload, not the capped entries, so a series
+     * keeps the same label shape as the pointer moves along the chart.
+     */
+    const { keyHeader, labels: seriesLabels }: SeriesLabelDisplay =
+      getSeriesLabelDisplay(
+        payload.filter(isRenderableTooltipEntry).map((item: PayloadItem) => {
+          return item.category;
+        }),
+      );
     return (
       <div
         className={cx(
           // base
-          "rounded-md border text-sm shadow-md",
+          "max-w-sm rounded-md border text-sm shadow-md",
           // border color
           "border-gray-200",
           // background color
@@ -531,6 +549,9 @@ const ChartTooltip: ({
           >
             {label}
           </p>
+          {keyHeader ? (
+            <p className={cx("mt-0.5 text-xs", "text-gray-500")}>{keyHeader}</p>
+          ) : null}
         </div>
         <div className={cx("space-y-1 px-4 py-2")}>
           {legendPayload.map(
@@ -538,13 +559,13 @@ const ChartTooltip: ({
               return (
                 <div
                   key={`id-${index}`}
-                  className="flex items-center justify-between space-x-8"
+                  className="flex items-start justify-between space-x-4"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex min-w-0 items-start space-x-2">
                     <span
                       aria-hidden="true"
                       className={cx(
-                        "h-[3px] w-3.5 shrink-0 rounded-full",
+                        "mt-2 h-[3px] w-3.5 shrink-0 rounded-full",
                         getColorClassName(color, "bg"),
                       )}
                       style={
@@ -556,18 +577,19 @@ const ChartTooltip: ({
                     <p
                       className={cx(
                         // base
-                        "whitespace-nowrap text-right",
+                        "min-w-0 break-words text-left",
                         // text color
                         "text-gray-700",
                       )}
+                      title={category}
                     >
-                      {category}
+                      {seriesLabels.get(category) || category}
                     </p>
                   </div>
                   <p
                     className={cx(
                       // base
-                      "whitespace-nowrap text-right font-medium tabular-nums",
+                      "shrink-0 whitespace-nowrap text-right font-medium tabular-nums",
                       // text color
                       "text-gray-900",
                     )}

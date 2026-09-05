@@ -34,7 +34,12 @@ import {
 import { cx } from "../Utils/Cx";
 import { getYAxisDomain } from "../Utils/GetYAxisDomain";
 import {
+  SeriesLabelDisplay,
+  getSeriesLabelDisplay,
+} from "../Utils/SeriesLabelDisplay";
+import {
   PreparedTooltipEntries,
+  isRenderableTooltipEntry,
   prepareTooltipEntries,
 } from "../Utils/TooltipEntries";
 import { useOnWindowResize } from "../Utils/UseWindowOnResize";
@@ -575,11 +580,24 @@ const ChartTooltip: React.FunctionComponent<ChartTooltipProps> = ({
       entries: sortedPayload,
       overflowCount,
     }: PreparedTooltipEntries<PayloadItem> = prepareTooltipEntries(payload);
+
+    /*
+     * Grouped series repeat their attribute keys in every name; print the
+     * keys once below the timestamp and leave the values on the rows.
+     * Computed over the whole payload, not the capped entries, so a series
+     * keeps the same label shape as the pointer moves along the chart.
+     */
+    const { keyHeader, labels: seriesLabels }: SeriesLabelDisplay =
+      getSeriesLabelDisplay(
+        payload.filter(isRenderableTooltipEntry).map((item: PayloadItem) => {
+          return item.category;
+        }),
+      );
     return (
       <div
         className={cx(
           // base
-          "rounded-md border text-sm shadow-md",
+          "max-w-sm rounded-md border text-sm shadow-md",
           // border color
           "border-gray-200",
           // background color
@@ -597,6 +615,9 @@ const ChartTooltip: React.FunctionComponent<ChartTooltipProps> = ({
           >
             {label}
           </p>
+          {keyHeader ? (
+            <p className={cx("mt-0.5 text-xs", "text-gray-500")}>{keyHeader}</p>
+          ) : null}
         </div>
         <div className={cx("space-y-1 px-4 py-2")}>
           {sortedPayload.map(
@@ -604,13 +625,13 @@ const ChartTooltip: React.FunctionComponent<ChartTooltipProps> = ({
               return (
                 <div
                   key={`id-${index}`}
-                  className="flex items-center justify-between space-x-8"
+                  className="flex items-start justify-between space-x-4"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex min-w-0 items-start space-x-2">
                     <span
                       aria-hidden="true"
                       className={cx(
-                        "size-2 shrink-0 rounded-xs",
+                        "mt-1.5 size-2 shrink-0 rounded-xs",
                         getColorClassName(color, "bg"),
                       )}
                       style={
@@ -622,18 +643,19 @@ const ChartTooltip: React.FunctionComponent<ChartTooltipProps> = ({
                     <p
                       className={cx(
                         // base
-                        "text-right whitespace-nowrap",
+                        "min-w-0 text-left break-words",
                         // text color
                         "text-gray-700",
                       )}
+                      title={category}
                     >
-                      {category}
+                      {seriesLabels.get(category) || category}
                     </p>
                   </div>
                   <p
                     className={cx(
                       // base
-                      "text-right font-medium whitespace-nowrap tabular-nums",
+                      "shrink-0 text-right font-medium whitespace-nowrap tabular-nums",
                       // text color
                       "text-gray-900",
                     )}
