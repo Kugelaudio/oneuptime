@@ -726,6 +726,10 @@ clickhouseOperator:
 # all, so data migrations must be written to tolerate concurrent runs.
 migrate:
   enabled: true
+  # Stable schema identifier used as the migration Job name suffix. Defaults
+  # to image.tag, so a OneUptime version upgrade runs migrations while a custom
+  # app-image rebuild of the same version does not.
+  id: ""
   # Whether the deploy WAITS for migrations:
   #   false (default): migrations run as an async background Job (both install and
   #     upgrade) — helm returns immediately and pods roll while migrations run.

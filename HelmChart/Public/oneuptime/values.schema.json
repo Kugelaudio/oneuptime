@@ -995,6 +995,9 @@
                 "enabled": {
                     "type": "boolean"
                 },
+                "id": {
+                    "type": "string"
+                },
                 "hook": {
                     "type": "boolean"
                 },
