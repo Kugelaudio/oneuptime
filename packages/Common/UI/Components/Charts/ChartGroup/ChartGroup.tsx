@@ -69,6 +69,9 @@ export interface Chart {
 
 export interface ComponentProps {
   charts: Array<Chart>;
+  /** Dashboard tiles already own the title and a finite content rectangle. */
+  compact?: boolean | undefined;
+  chartHeightInPx?: number | undefined;
   hideCard?: boolean | undefined;
   chartCssClass?: string | undefined;
   /**
@@ -128,6 +131,10 @@ const ChartGroup: FunctionComponent<ComponentProps> = (
           <LineChart
             key={index}
             {...(chart.props as LineChartProps)}
+            heightInPx={
+              props.chartHeightInPx ??
+              (chart.props as LineChartProps).heightInPx
+            }
             syncid={syncId}
             exemplarPoints={chart.exemplarPoints}
             onExemplarClick={chart.onExemplarClick}
@@ -139,6 +146,9 @@ const ChartGroup: FunctionComponent<ComponentProps> = (
           <BarChartElement
             key={index}
             {...(chart.props as BarChartProps)}
+            heightInPx={
+              props.chartHeightInPx ?? (chart.props as BarChartProps).heightInPx
+            }
             syncid={syncId}
             showLegend={showLegend}
           />
@@ -148,6 +158,10 @@ const ChartGroup: FunctionComponent<ComponentProps> = (
           <AreaChartElement
             key={index}
             {...(chart.props as AreaChartProps)}
+            heightInPx={
+              props.chartHeightInPx ??
+              (chart.props as AreaChartProps).heightInPx
+            }
             syncid={syncId}
             exemplarPoints={chart.exemplarPoints}
             onExemplarClick={chart.onExemplarClick}
@@ -382,6 +396,33 @@ const ChartGroup: FunctionComponent<ComponentProps> = (
       alignment: dir ? ` ${LINE_ALIGNED_AS_THE_PAGE_CLASS_NAME}` : "",
     };
   };
+
+  /*
+   * Kugelaudio fork: a dashboard tile owns the title and a fixed content
+   * rectangle, so the plot gets an explicit height and the series controls
+   * fold away instead of squeezing the plot to a sliver.
+   */
+  if (props.compact) {
+    return (
+      <div className="w-full min-h-0 overflow-auto px-2 pb-2">
+        {props.charts.map((chart: Chart, index: number) => {
+          return (
+            <div key={chart.id}>
+              {getChartContent(chart, index)}
+              {chart.seriesControls && (
+                <details className="border-t border-gray-100 pt-2 text-xs text-gray-600">
+                  <summary className="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500">
+                    {translator.translateText("Inspect series and values")}
+                  </summary>
+                  <div className="pt-2">{chart.seriesControls}</div>
+                </details>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   // When hideCard is true, render charts in a clean vertical stack with dividers
   if (props.hideCard) {
