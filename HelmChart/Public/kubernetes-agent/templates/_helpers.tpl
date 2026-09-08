@@ -5,6 +5,18 @@ Expand the name of the chart.
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{/* Stable identity for both DaemonSet log and metric resources. Matching the
+namespace as well as the application label avoids merging unrelated workloads.
+JSON-encode OTTL strings, then YAML-quote the whole statement: values must never
+be interpreted as Collector expressions. Keep owner attributes for release history. */}}
+{{- define "kubernetes-agent.serviceNames" -}}
+{{- range $namespace, $applications := .Values.serviceNames }}
+{{- range $application, $service := $applications }}
+- {{ printf "set(attributes[\"service.name\"], %s) where attributes[\"k8s.namespace.name\"] == %s and attributes[\"k8s.pod.label.app.kubernetes.io/name\"] == %s" (toJson $service) (toJson $namespace) (toJson $application) | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
 {{/*
 Create a default fully qualified app name.
 */}}
