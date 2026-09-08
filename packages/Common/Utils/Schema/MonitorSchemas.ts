@@ -26,6 +26,10 @@ export const CriteriaFilterSchema: ZodSchema = Zod.object({
     diskPath: Zod.string().optional(),
   }).optional(),
   metricMonitorOptions: Zod.object({
+    evaluationWindow: Zod.object({
+      durationSeconds: Zod.number().positive(),
+      maxBucketGapSeconds: Zod.number().positive(),
+    }).optional(),
     cadenceMetricAlias: Zod.string().optional(),
     metricAlias: Zod.string().optional(),
     metricAggregationType: Zod.string().optional(),

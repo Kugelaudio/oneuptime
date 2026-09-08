@@ -1,4 +1,5 @@
 import AggregateModel from "../../../../Types/BaseDatabase/AggregatedModel";
+import InBetween from "../../../../Types/BaseDatabase/InBetween";
 import AggregatedResult from "../../../../Types/BaseDatabase/AggregatedResult";
 import AggregationInterval from "../../../../Types/BaseDatabase/AggregationInterval";
 import AggregationIntervalUtil from "../../../../Types/BaseDatabase/AggregationIntervalUtil";
@@ -31,6 +32,9 @@ import MetricWindowCoverage, {
   MetricWindowCoverageResult,
 } from "./MetricWindowCoverage";
 import { WindowCoverageShortfall } from "./WindowCoverage";
+import selectMetricEvaluationWindow, {
+  narrowToEvaluationWindow,
+} from "./MetricEvaluationWindow";
 import {
   AnomalyDetectionSensitivity,
   CheckOn,
@@ -426,6 +430,7 @@ export default class MetricMonitorCriteria {
           isNarrowedByMonitor,
           queryAttributes: metricResponse.queryAttributes,
           groupByAttributeKeys,
+          evaluationQueryWindow: metricResponse.startAndEndDate,
         });
       return [result];
     }
@@ -452,6 +457,7 @@ export default class MetricMonitorCriteria {
           queryAttributes: metricResponse.queryAttributes,
           groupByAttributeKeys,
           seriesCount: seriesBreakdown!.length,
+          evaluationQueryWindow: metricResponse.startAndEndDate,
         });
       }),
     );
@@ -679,6 +685,7 @@ export default class MetricMonitorCriteria {
     groupByAttributeKeys?: Array<string> | undefined;
     // How many series the monitor is split into, when it is.
     seriesCount?: number | undefined;
+    evaluationQueryWindow?: InBetween<Date> | undefined;
   }): Promise<MetricSeriesEvaluationResult> {
     const rawThreshold: number | null =
       CompareCriteria.convertMetricThresholdToNumber(
@@ -854,8 +861,11 @@ export default class MetricMonitorCriteria {
 
     metricContext.unit = displayUnit || null;
 
-    const samples: Array<AggregateModel> =
-      (aggregatedResult && aggregatedResult.data) || [];
+    const samples: Array<AggregateModel> = selectMetricEvaluationWindow(
+      aggregatedResult?.data || [],
+      input.criteriaFilter.metricMonitorOptions?.evaluationWindow,
+      input.evaluationQueryWindow,
+    );
 
     /*
      * Respect the configured no-data policy. Without this guard, the
@@ -1011,7 +1021,10 @@ export default class MetricMonitorCriteria {
       MetricMonitorCriteria.isAllValues(input.criteriaFilter)
     ) {
       const coverage: MetricWindowCoverageResult = MetricWindowCoverage.judge({
-        window: input.window,
+        window: narrowToEvaluationWindow(
+          input.window,
+          input.criteriaFilter.metricMonitorOptions?.evaluationWindow,
+        ),
         samples: samples,
         monitorIntervalMs: input.monitorIntervalMs,
         monitorNewestDataPointMs: input.monitorNewestDataPointMs,
