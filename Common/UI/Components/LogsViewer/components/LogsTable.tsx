@@ -14,6 +14,7 @@ import { getSeverityTheme, SeverityTheme } from "./severityTheme";
 import SortOrder from "../../../../Types/BaseDatabase/SortOrder";
 import Icon from "../../Icon/Icon";
 import IconProp from "../../../../Types/Icon/IconProp";
+import prepareLogBodyForDisplay from "../../../../Types/Telemetry/LogBodyDisplay";
 import {
   getLogsAttributeKeyFromColumnId,
   isLogsAttributeColumnId,
@@ -387,7 +388,14 @@ const LogsTable: FunctionComponent<LogsTableProps> = (
                 (service?.serviceColor && service?.serviceColor.toString()) ||
                 "#94a3b8";
 
-              const message: string = log.body?.toString() || "";
+              /*
+               * Structured bodies (the Kubernetes agent's k8sobjects records)
+               * are stored as the OTLP AnyValue wrapper; show the readable
+               * form here, never the wrapper.
+               */
+              const message: string = prepareLogBodyForDisplay(
+                log.body?.toString(),
+              ).compact;
               const traceId: string = log.traceId?.toString() || "";
               const spanId: string = log.spanId?.toString() || "";
 
