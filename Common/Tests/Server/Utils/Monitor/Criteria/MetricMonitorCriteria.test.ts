@@ -19,6 +19,122 @@ import MetricFormulaEvaluator from "../../../../../Utils/Metrics/MetricFormulaEv
 import MonitorStep from "../../../../../Types/Monitor/MonitorStep";
 import RollingTime from "../../../../../Types/RollingTime/RollingTime";
 import ObjectID from "../../../../../Types/ObjectID";
+import InBetween from "../../../../../Types/BaseDatabase/InBetween";
+
+describe("memory collection evaluation window", () => {
+  test.each([
+    {
+      name: "minute bucket must not backdate a startup failure",
+      minutes: [-5, -4, -3, -2, -1, 0],
+      values: [0, 0, 0, 0, 0, 0],
+      breach: false,
+    },
+    {
+      name: "new node's first failed scrape",
+      minutes: [0],
+      values: [0],
+      breach: false,
+    },
+    {
+      name: "retired node's trailing failure",
+      minutes: [-6, -5, -4],
+      values: [0, 0, 0],
+      breach: false,
+    },
+    {
+      name: "five minutes of failed scrapes",
+      minutes: [-6, -5, -4, -3, -2, -1, 0],
+      values: [0, 0, 0, 0, 0, 0, 0],
+      breach: true,
+    },
+    {
+      name: "successful scrape resets failure",
+      minutes: [-6, -5, -4, -3, -2, -1, 0],
+      values: [0, 0, 0, 0, 1, 0, 0],
+      breach: false,
+    },
+    {
+      name: "old success outside the window",
+      minutes: [-8, -6, -5, -4, -3, -2, -1, 0],
+      values: [1, 0, 0, 0, 0, 0, 0, 0],
+      breach: true,
+    },
+    {
+      name: "collection gap is not sustained failure",
+      minutes: [-6, -5, -4, -1, 0],
+      values: [0, 0, 0, 0, 0],
+      breach: false,
+    },
+    {
+      name: "no samples from a retired target",
+      minutes: [],
+      values: [],
+      breach: false,
+    },
+  ])(
+    "$name",
+    async ({
+      minutes,
+      values,
+      breach,
+    }: {
+      minutes: Array<number>;
+      values: Array<number>;
+      breach: boolean;
+    }) => {
+      const criteriaFilter: CriteriaFilter = {
+        checkOn: CheckOn.MetricValue,
+        filterType: FilterType.LessThan,
+        value: 1,
+        metricMonitorOptions: {
+          metricAlias: "a",
+          metricAggregationType: EvaluateOverTimeType.MaximumValue,
+          onNoDataPolicy: NoDataPolicy.Ignore,
+          evaluationWindow: { durationSeconds: 300, maxBucketGapSeconds: 90 },
+        },
+      };
+      const inputs: ReturnType<typeof buildInputs> = buildInputs({
+        metricNativeUnit: "",
+        sampleValues: values,
+        criteriaFilter,
+      });
+      const end: Date = new Date("2026-09-08T15:14:00Z");
+      inputs.dataToProcess.startAndEndDate = new InBetween(
+        new Date(end.getTime() - 600_000),
+        end,
+      );
+      inputs.dataToProcess.metricResult[0]!.data.forEach(
+        (sample: AggregateModel, index: number) => {
+          sample.timestamp = new Date(end.getTime() + minutes[index]! * 60_000);
+        },
+      );
+      for (const seconds of [0, 29, 45]) {
+        inputs.dataToProcess.startAndEndDate = new InBetween(
+          new Date(end.getTime() + seconds * 1000 - 600_000),
+          new Date(end.getTime() + seconds * 1000),
+        );
+        criteriaFilter.filterType = FilterType.LessThan;
+        criteriaFilter.metricMonitorOptions!.metricAggregationType =
+          EvaluateOverTimeType.MaximumValue;
+        const result: string | null =
+          await MetricMonitorCriteria.isMonitorInstanceCriteriaFilterMet(
+            inputs,
+          );
+        expect(Boolean(result)).toBe(breach);
+        criteriaFilter.filterType = FilterType.GreaterThanOrEqualTo;
+        criteriaFilter.metricMonitorOptions!.metricAggregationType =
+          EvaluateOverTimeType.AnyValue;
+        const recovery: string | null =
+          await MetricMonitorCriteria.isMonitorInstanceCriteriaFilterMet(
+            inputs,
+          );
+        expect(Boolean(recovery)).toBe(
+          minutes.length === 7 && values.includes(1),
+        );
+      }
+    },
+  );
+});
 
 /*
  * Light helper that assembles a MonitorStep + MetricMonitorResponse pair

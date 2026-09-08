@@ -1,4 +1,5 @@
 import AggregateModel from "../../../../Types/BaseDatabase/AggregatedModel";
+import InBetween from "../../../../Types/BaseDatabase/InBetween";
 import AggregatedResult from "../../../../Types/BaseDatabase/AggregatedResult";
 import MetricFormulaConfigData from "../../../../Types/Metrics/MetricFormulaConfigData";
 import MetricQueryConfigData from "../../../../Types/Metrics/MetricQueryConfigData";
@@ -15,6 +16,7 @@ import MonitorStep from "../../../../Types/Monitor/MonitorStep";
 import { JSONObject } from "../../../../Types/JSON";
 import DataToProcess from "../DataToProcess";
 import CompareCriteria from "./CompareCriteria";
+import selectMetricEvaluationWindow from "./MetricEvaluationWindow";
 import {
   AnomalyDetectionSensitivity,
   CheckOn,
@@ -141,6 +143,7 @@ export default class MetricMonitorCriteria {
           seriesLabels: {},
           projectId: metricResponse.projectId,
           nativeUnitsByMetricName,
+          evaluationQueryWindow: metricResponse.startAndEndDate,
         });
       return [result];
     }
@@ -156,6 +159,7 @@ export default class MetricMonitorCriteria {
           seriesLabels: series.labels,
           projectId: metricResponse.projectId,
           nativeUnitsByMetricName,
+          evaluationQueryWindow: metricResponse.startAndEndDate,
         });
       }),
     );
@@ -177,6 +181,7 @@ export default class MetricMonitorCriteria {
     seriesLabels: JSONObject;
     projectId: { toString(): string } | undefined;
     nativeUnitsByMetricName?: { [key: string]: string } | undefined;
+    evaluationQueryWindow?: InBetween<Date> | undefined;
   }): Promise<MetricSeriesEvaluationResult> {
     const rawThreshold: number | null = CompareCriteria.convertToNumber(
       input.criteriaFilter.value,
@@ -322,8 +327,11 @@ export default class MetricMonitorCriteria {
 
     metricContext.unit = displayUnit || null;
 
-    const samples: Array<AggregateModel> =
-      (aggregatedResult && aggregatedResult.data) || [];
+    const samples: Array<AggregateModel> = selectMetricEvaluationWindow(
+      aggregatedResult?.data || [],
+      input.criteriaFilter.metricMonitorOptions?.evaluationWindow,
+      input.evaluationQueryWindow,
+    );
 
     /*
      * Respect the configured no-data policy. Without this guard, the
