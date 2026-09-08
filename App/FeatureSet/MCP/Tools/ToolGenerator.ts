@@ -28,6 +28,11 @@ import {
 import { generateHelperTools } from "./HelperTools";
 import { generatePublicStatusPageTools } from "./PublicStatusPageTools";
 import { generateWorkflowTools } from "./WorkflowTools";
+import { generateRequestTools, isRequestTool } from "./RequestTools";
+import {
+  generateInvestigationTools,
+  isInvestigationTool,
+} from "./InvestigationTools";
 import {
   getSelectableFieldsForModel,
   SelectableFieldsInfo,
@@ -162,7 +167,12 @@ function applyWritePolicy(tools: McpToolInfo[]): McpToolInfo[] {
 /**
  * Generate all MCP tools for all OneUptime models
  */
-export function generateAllTools(): McpToolInfo[] {
+export function generateAllTools(
+  profile: string = process.env["MCP_TOOL_PROFILE"] || "investigation",
+): McpToolInfo[] {
+  if (!["investigation", "advanced"].includes(profile)) {
+    throw new Error("MCP_TOOL_PROFILE must be investigation or advanced.");
+  }
   const allTools: McpToolInfo[] = [];
 
   // Generate tools for Database Models
@@ -177,9 +187,7 @@ export function generateAllTools(): McpToolInfo[] {
   const workflowTools: McpToolInfo[] = generateWorkflowTools();
   allTools.push(...workflowTools);
 
-  // Generate helper tools for discovery and guidance
-  const helperTools: McpToolInfo[] = generateHelperTools(allTools);
-  allTools.push(...helperTools);
+  allTools.push(...generateRequestTools(), ...generateInvestigationTools());
 
   // Generate public status page tools (no API key required)
   const publicStatusPageTools: McpToolInfo[] = generatePublicStatusPageTools();
@@ -202,7 +210,19 @@ export function generateAllTools(): McpToolInfo[] {
     uniqueTools.push(tool);
   }
 
-  const policedTools: McpToolInfo[] = applyWritePolicy(uniqueTools);
+  const visibleTools: McpToolInfo[] =
+    profile === "advanced"
+      ? uniqueTools
+      : uniqueTools.filter((tool: McpToolInfo): boolean => {
+          return (
+            isRequestTool(tool.name) ||
+            isInvestigationTool(tool.name) ||
+            tool.name === "oneuptime_whoami"
+          );
+        });
+  const policedTools: McpToolInfo[] = applyWritePolicy(visibleTools);
+  const helperTools: McpToolInfo[] = generateHelperTools(policedTools);
+  policedTools.push(...helperTools);
 
   MCPLogger.info(
     `Generated ${policedTools.length} MCP tools for OneUptime models (including ${workflowTools.length} workflow tools, ${helperTools.length} helper tools and ${publicStatusPageTools.length} public status page tools)`,
@@ -486,12 +506,17 @@ function createListTool(
         },
         select: buildSelectProperty(selectInfo, singularName),
         skip: {
-          type: "number",
+          type: "integer",
+          minimum: 0,
+          default: 0,
           description:
             "Number of records to skip for pagination. Default: 0. Example: skip=10 to start from the 11th record.",
         },
         limit: {
-          type: "number",
+          type: "integer",
+          minimum: 1,
+          maximum: LIST_MAX_LIMIT,
+          default: LIST_DEFAULT_LIMIT,
           description: `Maximum number of records to return. Default: ${LIST_DEFAULT_LIMIT}, Maximum: ${LIST_MAX_LIMIT}.`,
         },
         sort: {
@@ -639,11 +664,16 @@ function createAnalyticsListTool(
           description: `Fields to return, as an object of field names to true (e.g. {"time": true, "body": true}). Select only the fields you need — telemetry rows can be large.`,
         },
         skip: {
-          type: "number",
+          type: "integer",
+          minimum: 0,
+          default: 0,
           description: "Number of records to skip. Default: 0.",
         },
         limit: {
-          type: "number",
+          type: "integer",
+          minimum: 1,
+          maximum: LIST_MAX_LIMIT,
+          default: LIST_DEFAULT_LIMIT,
           description: `Maximum number of records to return. Default: ${LIST_DEFAULT_LIMIT}, Maximum: ${LIST_MAX_LIMIT}. Keep small for telemetry queries.`,
         },
         sort: {

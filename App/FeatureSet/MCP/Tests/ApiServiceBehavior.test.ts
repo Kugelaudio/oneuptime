@@ -30,12 +30,19 @@ import OneUptimeApiService, {
 import OneUptimeOperation from "../Types/OneUptimeOperation";
 import ModelType from "../Types/ModelType";
 import { OneUptimeToolCallArgs } from "../Types/McpTypes";
-import { JSONObject } from "Common/Types/JSON";
+import { JSONObject, JSONValue } from "Common/Types/JSON";
+import API from "Common/Utils/API";
+import HTTPResponse from "Common/Types/API/HTTPResponse";
+import { SpyInstance } from "jest-mock";
 import Route from "Common/Types/API/Route";
 import Headers from "Common/Types/API/Headers";
 
 const VALID_UUID: string = "550e8400-e29b-41d4-a716-446655440000";
 const API_KEY: string = "test-api-key";
+
+type PostApiCall = (
+  ...args: Parameters<typeof API.post>
+) => ReturnType<typeof API.post>;
 
 type MakeApiRequestArgs = [
   OneUptimeOperation,
@@ -247,4 +254,130 @@ describe("OneUptimeApiService behavior", () => {
       expect(error.details).toEqual({ field: "internalNote" });
     });
   });
+});
+
+describe("HTTP pagination contract", () => {
+  it("sends explicit page sizes and offsets in the URL, with bounded HTTP options", async () => {
+    const post: SpyInstance<PostApiCall> = jest
+      .spyOn(API, "post")
+      .mockResolvedValue({
+        data: { data: [], count: 0, hasMore: false },
+      } as any);
+    try {
+      OneUptimeApiService.initialize({ url: "https://test.oneuptime.com" });
+      await OneUptimeApiService.executeOperation(
+        "Log",
+        OneUptimeOperation.List,
+        ModelType.Analytics,
+        "/log",
+        { skip: 50, limit: 50, select: ["time"] },
+        API_KEY,
+      );
+      expect(post.mock.calls[0]?.[0].url.getQueryParam("skip")).toBe("50");
+      expect(post.mock.calls[0]?.[0].url.getQueryParam("limit")).toBe("50");
+      expect(post.mock.calls[0]?.[0].options).toMatchObject({
+        timeout: 30000,
+        retries: 0,
+      });
+    } finally {
+      post.mockRestore();
+    }
+  });
+  it.each([0, -1, 1.5, 101, NaN, Infinity])(
+    "rejects an invalid limit (%s) before HTTP",
+    async (limit: number) => {
+      const post: SpyInstance<PostApiCall> = jest
+        .spyOn(API, "post")
+        .mockResolvedValue({ data: {} } as any);
+      try {
+        await expect(
+          OneUptimeApiService.executeOperation(
+            "Log",
+            OneUptimeOperation.List,
+            ModelType.Analytics,
+            "/log",
+            { limit },
+            API_KEY,
+          ),
+        ).rejects.toThrow(/limit/);
+        expect(post).not.toHaveBeenCalled();
+      } finally {
+        post.mockRestore();
+      }
+    },
+  );
+});
+
+describe("authenticated composite-tool HTTP calls", () => {
+  it("preserves an embedded querystring and bounds the call duration", async () => {
+    const post: SpyInstance<PostApiCall> = jest
+      .spyOn(API, "post")
+      .mockResolvedValue({ data: { data: [] } } as any);
+    try {
+      OneUptimeApiService.initialize({ url: "https://test.oneuptime.com" });
+      await OneUptimeApiService.makeAuthenticatedApiCall({
+        method: "POST",
+        path: "/api/span/get-list?skip=100&limit=100",
+        body: { query: {} },
+        apiKey: API_KEY,
+      });
+      expect(post.mock.calls[0]?.[0].url.toString()).toBe(
+        "https://test.oneuptime.com/api/span/get-list?skip=100&limit=100",
+      );
+      expect(post.mock.calls[0]?.[0].url.getQueryParam("skip")).toBe("100");
+      expect(post.mock.calls[0]?.[0].options).toMatchObject({
+        timeout: 30000,
+        retries: 0,
+      });
+    } finally {
+      post.mockRestore();
+    }
+  });
+});
+
+it("retains pagination metadata through the real HTTPResponse unwrapping boundary", async () => {
+  const response: HTTPResponse<JSONObject> = new HTTPResponse(
+    200,
+    {
+      data: [
+        { time: { _type: "DateTime", value: "2026-09-08T12:00:00.000Z" } },
+      ],
+      count: { _type: "PositiveNumber", value: 2 },
+      skip: 0,
+      limit: 1,
+      hasMore: true,
+    },
+    {},
+  );
+  const post: SpyInstance<PostApiCall> = jest
+    .spyOn(API, "post")
+    .mockResolvedValue(response as any);
+  try {
+    OneUptimeApiService.initialize({ url: "https://test.oneuptime.com" });
+    const result: JSONValue =
+      await OneUptimeApiService.makeAuthenticatedApiCall({
+        method: "POST",
+        path: "/api/logs/get-list?limit=1",
+        apiKey: API_KEY,
+      });
+    expect(result).toMatchObject({
+      data: [
+        { time: { _type: "DateTime", value: "2026-09-08T12:00:00.000Z" } },
+      ],
+      hasMore: true,
+      limit: 1,
+      skip: 0,
+    });
+    const generated: JSONValue = await OneUptimeApiService.executeOperation(
+      "Log",
+      OneUptimeOperation.List,
+      ModelType.Analytics,
+      "/logs",
+      { limit: 1, select: ["time"] },
+      API_KEY,
+    );
+    expect(generated).toEqual(result);
+  } finally {
+    post.mockRestore();
+  }
 });

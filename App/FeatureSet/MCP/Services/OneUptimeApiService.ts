@@ -8,13 +8,15 @@ import ModelType from "../Types/ModelType";
 import { OneUptimeToolCallArgs } from "../Types/McpTypes";
 import { generateAllFieldsSelect } from "./SelectFieldGenerator";
 import MCPLogger from "../Utils/MCPLogger";
-import API from "Common/Utils/API";
+import API, { APIRequestOptions } from "Common/Utils/API";
+import { LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT } from "../Config/ServerConfig";
 import URL from "Common/Types/API/URL";
 import Route from "Common/Types/API/Route";
 import Headers from "Common/Types/API/Headers";
 import HTTPResponse from "Common/Types/API/HTTPResponse";
 import HTTPErrorResponse from "Common/Types/API/HTTPErrorResponse";
-import { JSONObject, JSONValue } from "Common/Types/JSON";
+import { JSONObject, JSONValue, JSONArray } from "Common/Types/JSON";
+import JSONFunctions from "Common/Types/JSONFunctions";
 import Protocol from "Common/Types/API/Protocol";
 import Hostname from "Common/Types/API/Hostname";
 import ObjectID from "Common/Types/ObjectID";
@@ -139,13 +141,22 @@ export default class OneUptimeApiService {
     this.validateInitialization();
     this.validateApiKey(data.apiKey);
 
-    const route: Route = new Route(data.path);
+    const queryStart: number = data.path.indexOf("?");
+    const route: Route = new Route(
+      queryStart < 0 ? data.path : data.path.slice(0, queryStart),
+    );
     const headers: Headers = this.buildHeaders(data.apiKey);
-    const url: URL = new URL(this.api.protocol, this.api.hostname, route);
-    const options: { url: URL; headers: Headers; data?: JSONObject } = {
+    const url: URL = new URL(
+      this.api.protocol,
+      this.api.hostname,
+      route,
+      queryStart < 0 ? undefined : data.path.slice(queryStart + 1),
+    );
+    const options: APIRequestOptions = {
       url,
       headers,
       ...(data.body ? { data: data.body } : {}),
+      options: { timeout: 30000, retries: 0 },
     };
 
     let response: HTTPResponse<JSONObject> | HTTPErrorResponse;
@@ -170,7 +181,10 @@ export default class OneUptimeApiService {
       );
     }
 
-    return response.data;
+    return this.responsePayload(
+      response,
+      route.toString().endsWith("/get-list"),
+    );
   }
 
   /**
@@ -229,7 +243,18 @@ export default class OneUptimeApiService {
     data: JSONObject | undefined,
   ): Promise<JSONValue> {
     const url: URL = new URL(this.api.protocol, this.api.hostname, route);
-    const baseOptions: { url: URL; headers: Headers } = { url, headers };
+    if (operation === OneUptimeOperation.List) {
+      // Analytics list endpoints read pagination only from the query string.
+      url.addQueryParams({
+        skip: String(data?.["skip"] ?? 0),
+        limit: String(data?.["limit"] ?? LIST_DEFAULT_LIMIT),
+      });
+    }
+    const baseOptions: APIRequestOptions = {
+      url,
+      headers,
+      options: { timeout: 30000, retries: 0 },
+    };
 
     let response: HTTPResponse<JSONObject> | HTTPErrorResponse;
 
@@ -262,7 +287,32 @@ export default class OneUptimeApiService {
       );
     }
 
-    return response.data;
+    return this.responsePayload(
+      response,
+      operation === OneUptimeOperation.List,
+    );
+  }
+
+  /**
+   * HTTPResponse unwraps paged lists and deserializes tagged values. Restore
+   * its metadata at this boundary so callers never infer completeness from rows.
+   */
+  private static responsePayload(
+    response: HTTPResponse<JSONObject>,
+    list: boolean,
+  ): JSONValue {
+    if (list && Array.isArray(response.data)) {
+      return {
+        data: JSONFunctions.serializeArray(response.data as JSONArray),
+        count: response.count,
+        skip: response.skip,
+        limit: response.limit,
+        ...(response.hasMore !== undefined
+          ? { hasMore: response.hasMore }
+          : {}),
+      } as JSONObject;
+    }
+    return JSONFunctions.serialize(response.data);
   }
 
   /**
@@ -531,8 +581,24 @@ export default class OneUptimeApiService {
         break;
       }
       case OneUptimeOperation.List:
+        if (
+          args.limit !== undefined &&
+          (!Number.isInteger(args.limit) ||
+            args.limit < 1 ||
+            args.limit > LIST_MAX_LIMIT)
+        ) {
+          throw new Error(
+            `limit must be an integer between 1 and ${LIST_MAX_LIMIT}`,
+          );
+        }
+        if (
+          args.skip !== undefined &&
+          (!Number.isSafeInteger(args.skip) || args.skip < 0)
+        ) {
+          throw new Error("skip must be a non-negative safe integer");
+        }
+        break;
       case OneUptimeOperation.Count:
-        // No required arguments for list/count operations
         break;
       default:
         throw new Error(`Unknown operation: ${operation}`);

@@ -114,11 +114,11 @@ AVAILABLE RESOURCES:
 ${resourceSummary}
 
 COMMON WORKFLOWS:
-1. Orient yourself: Use oneuptime_whoami to see your project
-2. List incidents: Use list_incidents to see current incidents
-3. Respond: Use acknowledge_incident / resolve_incident / add_incident_note
-4. Investigate: Use list_logs, list_metrics, list_spans, list_monitor_logs (always with a time-range filter)
-5. Create incident: Use list_incident_severities to get a severity ID, then create_incident`,
+- search_requests: organization/customer requests, then get_trace for spans and logs.
+- investigate_service: whole-window errors, latency and representative traces.
+- compare_release: equal windows around a verified deployment marker.
+- search_logs and query_metrics: focused telemetry queries.
+Use oneuptime_list_resources for the actual tools enabled here. The server's MCP_TOOL_PROFILE=advanced exposes the generated CRUD catalog. Default investigation tools are read-only.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -180,6 +180,51 @@ export function handleHelperTool(
   args: Record<string, unknown>,
   resourceTools: McpToolInfo[],
 ): string {
+  const investigationProfile: boolean =
+    resourceTools.some((tool: McpToolInfo) => {
+      return tool.name === "search_requests";
+    }) &&
+    !resourceTools.some((tool: McpToolInfo) => {
+      return tool.name === "list_spans";
+    });
+  if (investigationProfile) {
+    return JSON.stringify({
+      success: true,
+      profile: "investigation",
+      topic: args["topic"] || "general",
+      tools: resourceTools.map((tool: McpToolInfo) => {
+        return {
+          name: tool.name,
+          description: tool.description,
+        };
+      }),
+      examples: {
+        customerFailures: {
+          tool: "search_requests",
+          args: { organization: "13", since: "2h", status: "error" },
+        },
+        requestDetail: {
+          tool: "get_trace",
+          args: { traceId: "<trace-id>", since: "2h" },
+        },
+        service: {
+          tool: "investigate_service",
+          args: { service: "tts", environment: "production", since: "30m" },
+        },
+        release: {
+          tool: "compare_release",
+          args: {
+            service: "tts",
+            environment: "production",
+            cluster: "<cluster>",
+            since: "24h",
+          },
+        },
+      },
+      guidance:
+        "Names resolve only from the configured application directory. Use numeric organization IDs without it. Results include coverage/truncation. Empty telemetry is not proof of health. MCP_TOOL_PROFILE=advanced enables raw CRUD tools; reconnect after changing server configuration.",
+    });
+  }
   // Extract unique resources from tools
   const resources: Map<string, ResourceInfo> = new Map();
 
@@ -362,7 +407,7 @@ function handleHelpTool(
             sort: { time: "DESC" },
           },
         },
-        countActiveIncidents: {
+        countAllIncidents: {
           tool: "count_incidents",
           args: { query: {} },
         },

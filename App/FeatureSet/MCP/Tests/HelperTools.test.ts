@@ -109,3 +109,15 @@ describe("HelperTools", () => {
     });
   });
 });
+
+describe("help count examples", () => {
+  it("labels an unfiltered incident count as all incidents", () => {
+    const response: { data: { examples: Record<string, unknown> } } =
+      JSON.parse(handleHelperTool("oneuptime_help", { topic: "examples" }, []));
+    expect(response.data.examples["countAllIncidents"]).toEqual({
+      tool: "count_incidents",
+      args: { query: {} },
+    });
+    expect(response.data.examples["countActiveIncidents"]).toBeUndefined();
+  });
+});

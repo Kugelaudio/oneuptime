@@ -211,6 +211,7 @@ export class AnalyticsModelSchema extends BaseSchema {
       case TableColumnType.ObjectID:
         return ObjectID.getSchema();
       case TableColumnType.Date:
+      case TableColumnType.DateTime64:
         return OneUptimeDate.getSchema();
       case TableColumnType.Text:
         return this.applyOpenApi(
@@ -520,6 +521,7 @@ export class AnalyticsModelSchema extends BaseSchema {
       TableColumnType.Number,
       TableColumnType.LongNumber,
       TableColumnType.Date,
+      TableColumnType.DateTime64,
       TableColumnType.Boolean,
       TableColumnType.ObjectID,
       TableColumnType.Decimal,
@@ -544,10 +546,12 @@ export class AnalyticsModelSchema extends BaseSchema {
           "LessThan",
           "GreaterThanOrEqual",
           "LessThanOrEqual",
+          "InBetween",
           "IsNull",
           "NotNull",
         ];
       case TableColumnType.Date:
+      case TableColumnType.DateTime64:
         return [
           "EqualTo",
           "NotEqual",
@@ -555,6 +559,7 @@ export class AnalyticsModelSchema extends BaseSchema {
           "LessThan",
           "GreaterThanOrEqual",
           "LessThanOrEqual",
+          "InBetween",
           "IsNull",
           "NotNull",
         ];
@@ -578,6 +583,7 @@ export class AnalyticsModelSchema extends BaseSchema {
           "LessThan",
           "GreaterThanOrEqual",
           "LessThanOrEqual",
+          "InBetween",
           "IsNull",
           "NotNull",
         ];
@@ -600,6 +606,7 @@ export class AnalyticsModelSchema extends BaseSchema {
       case TableColumnType.Decimal:
         return 123.45;
       case TableColumnType.Date:
+      case TableColumnType.DateTime64:
         return "2023-01-15T12:30:00.000Z";
       case TableColumnType.Boolean:
         return true;
@@ -840,6 +847,13 @@ export class AnalyticsModelSchema extends BaseSchema {
           value: baseValue,
         });
 
+      case "InBetween":
+        return z.object({
+          _type: z.literal("InBetween"),
+          startValue: baseValue,
+          endValue: baseValue,
+        });
+
       case "Search":
         return z.object({
           _type: z.literal("Search"),
@@ -874,10 +888,21 @@ export class AnalyticsModelSchema extends BaseSchema {
         return z.number();
 
       case TableColumnType.Date:
+      case TableColumnType.DateTime64:
         return z.date();
 
       case TableColumnType.Boolean:
         return z.boolean();
+
+      case TableColumnType.MapStringString:
+        return z.record(
+          z.union([
+            z.string(),
+            z.object({ _type: z.literal("Search"), value: z.string() }),
+            z.object({ _type: z.literal("NotEqual"), value: z.string() }),
+            z.object({ _type: z.enum(["IsNull", "NotNull"]) }),
+          ]),
+        );
 
       case TableColumnType.JSON:
       case TableColumnType.JSONArray:

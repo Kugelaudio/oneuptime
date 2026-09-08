@@ -4,7 +4,9 @@ import { JSONObject } from "Common/Types/JSON";
 
 // JSON Schema type for MCP tool input schemas
 export interface JSONSchemaProperty {
-  type: string;
+  type?: string;
+  anyOf?: JSONSchemaProperty[];
+  additionalProperties?: boolean | JSONSchemaProperty;
   description?: string;
   enum?: Array<string | number | boolean>;
   items?: JSONSchemaProperty;
@@ -67,7 +69,7 @@ export interface ModelToolsResult {
 }
 
 // Sort direction type
-export type SortDirection = 1 | -1;
+export type SortDirection = "ASC" | "DESC";
 
 // Sort object type
 export type SortObject = Record<string, SortDirection>;
