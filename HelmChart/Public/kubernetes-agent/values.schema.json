@@ -374,6 +374,11 @@
           },
           "additionalProperties": false
         },
+        "transformStatements": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "OTTL log-context statements for DaemonSet pod logs after Kubernetes metadata enrichment and before severity filtering. Not supported with API or Windows log tailers. Empty preserves the default pipeline."
+        },
         "enabled": {
           "type": "boolean"
         },
