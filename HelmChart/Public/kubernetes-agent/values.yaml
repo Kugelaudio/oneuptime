@@ -372,6 +372,13 @@ controlPlane:
 #   disabled — no log collection at all (use if you ship logs another way).
 logs:
   enabled: true
+  # Optional OTTL log-context statements for DaemonSet pod logs, after Kubernetes
+  # metadata enrichment and before filters.logs.minSeverity. Bodies and metadata
+  # are unchanged unless a statement explicitly edits them. Empty preserves the
+  # upstream pipeline. API/Windows log tailers bypass this Collector and cannot
+  # use these statements; configuring both is rejected rather than ignored.
+  # Validate statements with the configured Collector image before deployment.
+  transformStatements: []
   # Leave empty to let the `preset` choose: "standard" -> daemonset,
   # "gke-autopilot" / "eks-fargate" -> api. Override explicitly if you know
   # what you want: "daemonset" | "api" | "disabled".

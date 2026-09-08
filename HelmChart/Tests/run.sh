@@ -20,7 +20,7 @@ SUITES_DIR="${TESTS_DIR}/suites"
 
 # Ordered cheapest-first. Every file in ./suites has to appear here, which is
 # checked below: a new suite cannot be added and then silently never run.
-ALL_SUITES=(lint unit agent-service-identity extra-values migration-once secrets-lifecycle keda-bootstrap)
+ALL_SUITES=(lint unit agent-service-identity agent-log-transforms extra-values migration-once secrets-lifecycle keda-bootstrap)
 
 usage() {
     echo "usage: $(basename "${BASH_SOURCE[0]}") [suite ...]"

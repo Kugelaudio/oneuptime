@@ -78,7 +78,23 @@ DaemonSet-collected signals; they do not rename API-tailer logs, application
 OTLP spans or eBPF signals. Empty names are rejected by the values schema.
 
 This fork's chart retains the released 12.0.34 severity parser and node resource
-attribution; the service-name mappings are the only additional Collector behavior.
+attribution.
+
+## Pod log transformations
+
+`logs.transformStatements` accepts OTTL log-context statements for DaemonSet pod
+logs. They run after Kubernetes metadata enrichment and before the minimum
+severity filter; the default empty list preserves the upstream pipeline.
+Scope corrections to the exact workload and message, set both `severity_number`
+and `severity_text`, and retain the original body when correcting a source's
+severity. Kubernetes events, resource specs, metrics and traces are unaffected.
+
+Validate the rendered configuration and replay representative positive and
+negative log fixtures with the configured Collector image before deployment.
+Invalid OTTL syntax fails Collector startup; runtime statement errors log a
+Collector error and retain the record (`error_mode: ignore`). API and hybrid
+Windows tailers bypass this Collector, so combining them with statements is
+rejected at Helm render time.
 
 ## Tuning resources (CPU & memory)
 

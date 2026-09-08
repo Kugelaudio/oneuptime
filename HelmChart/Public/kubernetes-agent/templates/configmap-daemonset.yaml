@@ -4,6 +4,9 @@
   only parts gated on pod-log collection. Everything else here is metrics.
 */}}
 {{- $wantLogs := eq (include "kubernetes-agent.daemonSetLogsEnabled" .) "true" }}
+{{- if and .Values.logs.transformStatements (or (not $wantLogs) .Values.logs.windowsPods.enabled) }}
+{{- fail "logs.transformStatements requires DaemonSet-only pod log collection" }}
+{{- end }}
 {{- if eq (include "kubernetes-agent.daemonSetEnabled" .) "true" }}
 apiVersion: v1
 kind: ConfigMap
@@ -380,6 +383,16 @@ data:
       {{- end }}
 
     processors:
+      {{- if .Values.logs.transformStatements }}
+      transform/pod_logs:
+        # A runtime transform error must retain the original record and emit a
+        # collector error, rather than discard the entire batch of pod logs.
+        error_mode: ignore
+        log_statements:
+          - context: log
+            statements:
+              {{- toYaml .Values.logs.transformStatements | nindent 14 }}
+      {{- end }}
       # Enrich with K8s metadata
       k8sattributes:
         auth_type: serviceAccount
@@ -549,6 +562,9 @@ data:
           processors:
             - memory_limiter
             - k8sattributes
+            {{- if .Values.logs.transformStatements }}
+            - transform/pod_logs
+            {{- end }}
             {{- if eq (include "kubernetes-agent.logFiltersEnabled" .) "true" }}
             # Severity is set by the receiver's operator chain above, so the
             # filter sees a real severity_number by the time it runs here.
