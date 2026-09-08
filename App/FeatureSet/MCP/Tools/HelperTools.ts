@@ -222,7 +222,7 @@ export function handleHelperTool(
         },
       },
       guidance:
-        "Names resolve only from the configured application directory. Use numeric organization IDs without it. Results include coverage/truncation. Empty telemetry is not proof of health. MCP_TOOL_PROFILE=advanced enables raw CRUD tools; reconnect after changing server configuration.",
+        'Organization filters require a positive numeric application ID string, for example "13"; names and public IDs are not accepted. Results include coverage/truncation. Empty telemetry is not proof of health. MCP_TOOL_PROFILE=advanced enables raw CRUD tools; reconnect after changing server configuration.',
     });
   }
   // Extract unique resources from tools

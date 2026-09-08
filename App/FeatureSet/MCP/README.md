@@ -270,20 +270,11 @@ and `windowMinutes: 30`; omit `since` to use the 24-hour marker lookup.
 
 The MCP server ships as part of the App container and is served at `/mcp` behind Nginx — no separate deployment is needed. The OneUptime API URL it talks to is derived from the `HOST` and `HTTP_PROTOCOL` environment variables via `Common/Server/EnvironmentConfig` (inherited from the App service's environment). API keys are never configured on the server; clients supply them per request.
 
-Organization names/public IDs optionally resolve from a file named by
-`MCP_ORGANIZATION_DIRECTORY_FILE`:
-
-```json
-{"schemaVersion":1,"projectId":"<OneUptime-project-UUID>","generatedAt":"<current-ISO-time>","organizations":[{"id":"13","name":"Acme","publicId":"org_acme"}]}
-```
-
-Generate this from application data; never mount a Supabase service-role key into
-the MCP App. The snapshot must be no more than seven days old and match the
-single OneUptime project accessible to the caller. Exact names match ignoring
-case; public IDs match exactly. Ambiguous names fail explicitly. Numeric
-organization IDs bypass the directory and remain available without it. The
-KugelAudio monorepo owns the exporter, Terraform ConfigMap mount and release-event
-producer in `packages/private/tools/scripts/mcp/` and `infrastructure/oneuptime/`.
+Organization filters accept the positive numeric application organization ID as a
+string, for example `"organization": "13"`. The MCP queries the stored
+`organization.id` attribute directly; names and public IDs are rejected.
+The KugelAudio monorepo owns the release-event producer and deployment
+configuration under `packages/private/ci/release/` and `infrastructure/oneuptime/`.
 
 ## Development
 

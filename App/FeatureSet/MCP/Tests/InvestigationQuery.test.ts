@@ -14,6 +14,7 @@ import { Statement } from "Common/Server/Utils/AnalyticsDatabase/Statement";
 import {
   TimeWindow,
   parseTimeWindow,
+  parseOrganizationId,
   telemetryQuery,
   readTelemetry,
   scalar,
@@ -223,4 +224,30 @@ it("accepts the unique ID tie breaker in each telemetry model's actual SQL gener
     expect(statement.query).toBe("{p0:Identifier} DESC, {p1:Identifier} ASC");
     expect(statement.query_params).toEqual({ p0: column, p1: "_id" });
   }
+});
+
+it("accepts exact positive numeric organization strings without numeric coercion", () => {
+  expect(parseOrganizationId("13")).toBe("13");
+  expect(parseOrganizationId("9223372036854775807")).toBe(
+    "9223372036854775807",
+  );
+});
+
+it.each([
+  "Acme",
+  "org_acme",
+  "0",
+  "-13",
+  "013",
+  "13.0",
+  " 13 ",
+  "1e3",
+  "",
+  13,
+  null,
+  ["13"],
+])("rejects invalid organization identity %j", (value: unknown) => {
+  expect(() => {
+    parseOrganizationId(value);
+  }).toThrow("positive numeric ID");
 });

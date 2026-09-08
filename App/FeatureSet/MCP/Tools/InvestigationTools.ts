@@ -22,8 +22,9 @@ const common: Record<string, JSONSchemaProperty> = {
   cluster: { type: "string", description: "Exact Kubernetes cluster name." },
   organization: {
     type: "string",
+    pattern: "^[1-9]\\d*$",
     description:
-      "Numeric application organization ID or exact directory name/public ID.",
+      'Positive numeric application organization ID as a string, for example "13".',
   },
   project: {
     type: "string",

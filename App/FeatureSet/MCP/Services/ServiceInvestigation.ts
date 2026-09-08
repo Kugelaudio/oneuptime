@@ -2,12 +2,12 @@ import { JSONObject } from "Common/Types/JSON";
 import OneUptimeApiService from "./OneUptimeApiService";
 import {
   parseTimeWindow,
+  parseOrganizationId,
   telemetryQuery,
   readTelemetry,
   scalar,
   TimeWindow,
 } from "./InvestigationQuery";
-import { resolveOrganization } from "./OrganizationDirectory";
 
 type Args = Record<string, unknown>;
 type Row = Record<string, unknown>;
@@ -54,18 +54,13 @@ function date(value: string): JSONObject {
   return { _type: "DateTime", value };
 }
 
-async function scopedQuery(
-  args: Args,
-  window: TimeWindow,
-  column: string,
-  apiKey: string,
-): Promise<Row> {
+function scopedQuery(args: Args, window: TimeWindow, column: string): Row {
   const query: Row = telemetryQuery(args, window, column);
   const attrs: Row = { ...((query["attributes"] as Row) || {}) };
   if (args["organization"] !== undefined) {
     attrs["organization.id"] = {
       _type: "EqualTo",
-      value: await resolveOrganization(required(args, "organization"), apiKey),
+      value: parseOrganizationId(args["organization"]),
     };
   }
   if (args["project"] !== undefined) {
@@ -194,7 +189,7 @@ export async function investigateService(
 ): Promise<Row> {
   required(args, "service");
   const window: TimeWindow = parseTimeWindow(args);
-  const query: Row = await scopedQuery(args, window, "startTime", apiKey);
+  const query: Row = scopedQuery(args, window, "startTime");
   const [stats, groups, sample]: [
     Statistics,
     AggregateResult,
@@ -275,7 +270,7 @@ export async function queryMetrics(args: Args, apiKey: string): Promise<Row> {
     throw new Error(`aggregation must be one of ${AGGREGATIONS.join(", ")}.`);
   }
   const window: TimeWindow = parseTimeWindow(args);
-  const query: Row = await scopedQuery(args, window, "time", apiKey);
+  const query: Row = scopedQuery(args, window, "time");
   query["name"] = { _type: "EqualTo", value: metric };
   const interval: string =
     typeof args["interval"] === "string" ? args["interval"] : "FiveMinutes";
@@ -326,7 +321,7 @@ export async function queryMetrics(args: Args, apiKey: string): Promise<Row> {
 
 export async function searchLogs(args: Args, apiKey: string): Promise<Row> {
   const window: TimeWindow = parseTimeWindow(args);
-  const query: Row = await scopedQuery(args, window, "time", apiKey);
+  const query: Row = scopedQuery(args, window, "time");
   if (args["text"] !== undefined) {
     query["body"] = { _type: "Search", value: required(args, "text") };
   }
@@ -401,6 +396,9 @@ export async function searchLogs(args: Args, apiKey: string): Promise<Row> {
 
 /** Compare fixed equal-duration windows around a verified deployment marker. */
 export async function compareRelease(args: Args, apiKey: string): Promise<Row> {
+  if (args["organization"] !== undefined) {
+    parseOrganizationId(args["organization"]);
+  }
   const service: string = required(args, "service");
   const environment: string = required(args, "environment");
   const cluster: string = required(args, "cluster");
@@ -524,10 +522,12 @@ export async function compareRelease(args: Args, apiKey: string): Promise<Row> {
     since: new Date(deployedAt).toISOString(),
     until: new Date(deployedAt + duration).toISOString(),
   };
-  const [beforeQuery, afterQuery] = await Promise.all([
-    scopedQuery({ ...args, version: undefined }, before, "startTime", apiKey),
-    scopedQuery({ ...args, version }, after, "startTime", apiKey),
-  ]);
+  const beforeQuery: Row = scopedQuery(
+    { ...args, version: undefined },
+    before,
+    "startTime",
+  );
+  const afterQuery: Row = scopedQuery({ ...args, version }, after, "startTime");
   const [baseline, current]: Statistics[] = await Promise.all([
     statistics(apiKey, beforeQuery, before),
     statistics(apiKey, afterQuery, after),

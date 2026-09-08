@@ -5,6 +5,17 @@ const ISO_TIMESTAMP: RegExp = /^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/;
 
 export type TimeWindow = { since: string; until: string };
 
+const ORGANIZATION_ID: RegExp = /^[1-9]\d*$/;
+
+export function parseOrganizationId(value: unknown): string {
+  if (typeof value !== "string" || !ORGANIZATION_ID.test(value)) {
+    throw new Error(
+      'organization must be a positive numeric ID string, for example "13".',
+    );
+  }
+  return value;
+}
+
 export function scalar(value: unknown): unknown {
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     const tagged: Record<string, unknown> = value as Record<string, unknown>;

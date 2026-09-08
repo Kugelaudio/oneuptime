@@ -21,7 +21,7 @@ export function generateRequestTools(): McpToolInfo[] {
       name: "search_requests",
       title: "Search Requests",
       description:
-        "Find HTTP requests and logical WebSocket TTS generations by organization, service and time, with outcome, duration and trace IDs. Resolves configured organization names; uses application project IDs, not the OneUptime project. Connection IDs remain separate from generation IDs. Results describe bounded observed telemetry, not billing totals; narrow the window when truncated.",
+        "Find HTTP requests and logical WebSocket TTS generations by organization, service and time, with outcome, duration and trace IDs. Uses positive numeric application organization IDs and application project IDs. Connection IDs remain separate from generation IDs. Results describe bounded observed telemetry, not billing totals; narrow the window when truncated.",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -29,8 +29,9 @@ export function generateRequestTools(): McpToolInfo[] {
           ...TIME_PROPERTIES,
           organization: {
             type: "string",
+            pattern: "^[1-9]\\d*$",
             description:
-              "Exact organization ID or configured organization name.",
+              'Positive numeric application organization ID as a string, for example "13".',
           },
           project: {
             type: "string",
