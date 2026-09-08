@@ -47,6 +47,16 @@
       "type": "string",
       "description": "Unique name for this cluster (used as k8s.cluster.name attribute)"
     },
+    "serviceNames": {
+      "type": "object",
+      "description": "DaemonSet resource service names by exact namespace and app.kubernetes.io/name label. Unlisted workloads keep their owner-derived identity.",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": { "minLength": 1 },
+        "additionalProperties": { "type": "string", "minLength": 1 }
+      }
+    },
     "namespaceFilters": {
       "type": "object",
       "description": "Scoped namespace rules. Patterns match the full namespace name and support * as a wildcard. Include rules form a per-scope allowlist; exclude rules always win.",

@@ -48,6 +48,15 @@ oneuptime:
 # Required: Unique name for this cluster (used as k8s.cluster.name attribute)
 clusterName: ""
 
+# Stable service names for DaemonSet-collected pod logs and container metrics.
+# Exact namespace -> app.kubernetes.io/name -> service.name mappings. Unlisted
+# workloads retain owner-derived names. Deployment/pod/cluster attributes remain
+# unchanged, so releases can be compared within one service.
+# serviceNames:
+#   backend:
+#     tts: kugelaudio-tts
+serviceNames: {}
+
 # Namespace filters — scoped rules for deciding which namespaces are observed.
 #
 # Each rule has an action (`include` or `exclude`), one or more namespace
@@ -1126,8 +1135,16 @@ profiling:
 #
 # Runs inside the existing log-collector DaemonSet (which already has
 # hostPath access to /var/log/pods on every node), so no extra pods.
+# Every `system.*` series is stamped with the collecting node's
+# `k8s.node.name`, so it groups and alerts per node exactly like the
+# `kubeletstats` node metrics do.
 hostMetrics:
   enabled: true
+  # How often each node is scraped. Every scraper runs on this interval,
+  # and every enabled scraper emits several series per node — so this is
+  # the main lever on how many rows host metrics cost. Raise it (60s,
+  # 120s) on large clusters where per-node OS metrics don't need 30s
+  # resolution.
   collectionInterval: 30s
 
 # Kubernetes API server audit logs. Captures every API request — who

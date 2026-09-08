@@ -518,15 +518,20 @@ const ChartTooltip: ({
     /*
      * Grouped series repeat their attribute keys in every name; print the
      * keys once below the timestamp and leave the values on the rows.
+     * A value that is the same on every series is printed once with its
+     * key and leaves the rows as well.
      * Computed over the whole payload, not the capped entries, so a series
      * keeps the same label shape as the pointer moves along the chart.
      */
-    const { keyHeader, labels: seriesLabels }: SeriesLabelDisplay =
-      getSeriesLabelDisplay(
-        payload.filter(isRenderableTooltipEntry).map((item: PayloadItem) => {
-          return item.category;
-        }),
-      );
+    const {
+      keyHeader,
+      constantHeader,
+      labels: seriesLabels,
+    }: SeriesLabelDisplay = getSeriesLabelDisplay(
+      payload.filter(isRenderableTooltipEntry).map((item: PayloadItem) => {
+        return item.category;
+      }),
+    );
     return (
       <div
         className={cx(
@@ -549,6 +554,11 @@ const ChartTooltip: ({
           >
             {label}
           </p>
+          {constantHeader ? (
+            <p className={cx("mt-0.5 text-xs", "text-gray-500")}>
+              {constantHeader}
+            </p>
+          ) : null}
           {keyHeader ? (
             <p className={cx("mt-0.5 text-xs", "text-gray-500")}>{keyHeader}</p>
           ) : null}
