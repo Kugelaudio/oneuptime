@@ -624,12 +624,14 @@ data:
               - set(attributes["service.name"], attributes["k8s.deployment.name"]) where attributes["k8s.deployment.name"] != nil and attributes["k8s.deployment.name"] != ""
               - set(attributes["service.name"], attributes["k8s.statefulset.name"]) where attributes["k8s.statefulset.name"] != nil and attributes["k8s.statefulset.name"] != "" and attributes["k8s.deployment.name"] == nil
               - set(attributes["service.name"], attributes["k8s.daemonset.name"]) where attributes["k8s.daemonset.name"] != nil and attributes["k8s.daemonset.name"] != "" and attributes["k8s.deployment.name"] == nil and attributes["k8s.statefulset.name"] == nil
+              {{- include "kubernetes-agent.serviceNames" . | nindent 14 }}
         metric_statements:
           - context: resource
             statements:
               - set(attributes["service.name"], attributes["k8s.deployment.name"]) where attributes["k8s.deployment.name"] != nil and attributes["k8s.deployment.name"] != ""
               - set(attributes["service.name"], attributes["k8s.statefulset.name"]) where attributes["k8s.statefulset.name"] != nil and attributes["k8s.statefulset.name"] != "" and attributes["k8s.deployment.name"] == nil
               - set(attributes["service.name"], attributes["k8s.daemonset.name"]) where attributes["k8s.daemonset.name"] != nil and attributes["k8s.daemonset.name"] != "" and attributes["k8s.deployment.name"] == nil and attributes["k8s.statefulset.name"] == nil
+              {{- include "kubernetes-agent.serviceNames" . | nindent 14 }}
 
       {{- if or (eq (include "kubernetes-agent.logFiltersEnabled" .) "true") (eq (include "kubernetes-agent.metricFiltersEnabled" .) "true") }}
       {{- include "kubernetes-agent.filterProcessor" (dict "root" . "signals" (list "logs" "metrics")) | nindent 6 }}

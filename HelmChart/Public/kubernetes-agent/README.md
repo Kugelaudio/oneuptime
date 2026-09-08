@@ -253,6 +253,29 @@ helm install kubernetes-agent oneuptime/kubernetes-agent \
 
 Every agent workload then reads the key from that Secret, and the chart creates no Secret of its own. Set `oneuptime.apiKey` or `oneuptime.existingSecretName`, not both: the chart refuses the two together. The Secret can come from anywhere that writes one, such as the External Secrets Operator or the Secrets Store CSI driver. On Amazon EKS, the agent is also an [EKS add-on](https://oneuptime.com/docs/telemetry/kubernetes-agent#install-as-an-amazon-eks-add-on), which reads its key this way.
 
+## Stable service names
+
+The DaemonSet collector normally derives `service.name` from the owning
+Deployment, StatefulSet or DaemonSet. When Deployment names include a release
+identifier, configure exact namespace and `app.kubernetes.io/name` mappings:
+
+```yaml
+serviceNames:
+  backend:
+    tts: kugelaudio-tts
+    normalizer: kugelaudio-normalizer
+```
+
+Mappings run after owner-name fallback on both pod logs and container metrics.
+Unlisted namespaces/applications retain the default identity, and Kubernetes
+owner, pod and cluster attributes remain available for comparing releases.
+Use the same names in application instrumentation. These mappings apply to
+DaemonSet-collected signals; they do not rename API-tailer logs, application
+OTLP spans or eBPF signals. Empty names are rejected by the values schema.
+
+This fork's chart retains the released 12.0.34 severity parser and node resource
+attribution; the service-name mappings are the only additional Collector behavior.
+
 ## Tuning resources (CPU & memory)
 
 Every component the agent ships has its own `resources` block in [`values.yaml`](./values.yaml) with conservative defaults — small enough to fit on a modest node, large enough to handle a few hundred pods. Tune them up for larger clusters or heavier workloads.

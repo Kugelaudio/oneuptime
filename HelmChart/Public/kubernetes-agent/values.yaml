@@ -108,6 +108,15 @@ oneuptime:
 # clusters installed without it are silently merged into one estate.
 clusterName: ""
 
+# Stable service names for DaemonSet-collected pod logs and container metrics.
+# Exact namespace -> app.kubernetes.io/name -> service.name mappings. Unlisted
+# workloads retain owner-derived names. Deployment/pod/cluster attributes remain
+# unchanged, so releases can be compared within one service.
+# serviceNames:
+#   backend:
+#     tts: kugelaudio-tts
+serviceNames: {}
+
 # Namespace filters — scoped rules for deciding which namespaces are observed.
 #
 # Each rule has an action (`include` or `exclude`), one or more namespace
