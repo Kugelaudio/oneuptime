@@ -190,6 +190,16 @@ export interface MetricAnomalyDetectionOptions {
 }
 
 export interface MetricMonitorOptions {
+  /**
+   * Require a fresh, continuously sampled window; query a longer lookback
+   * so a sample at/before the window boundary can establish coverage.
+   */
+  evaluationWindow?:
+    | {
+        durationSeconds: number;
+        maxBucketGapSeconds: number;
+      }
+    | undefined;
   metricAlias?: string | undefined;
   metricAggregationType?: EvaluateOverTimeType | undefined;
   /*
@@ -439,6 +449,10 @@ export const CriteriaFilterSchema: ZodSchema = Zod.object({
     diskPath: Zod.string().optional(),
   }).optional(),
   metricMonitorOptions: Zod.object({
+    evaluationWindow: Zod.object({
+      durationSeconds: Zod.number().positive(),
+      maxBucketGapSeconds: Zod.number().positive(),
+    }).optional(),
     metricAlias: Zod.string().optional(),
     metricAggregationType: Zod.string().optional(),
     onNoDataPolicy: Zod.string().optional(),
