@@ -178,13 +178,18 @@ describe.each(TOOLTIP_CASES)(
       );
 
       expect(
-        screen.getByText("resource.k8s.cluster.name · deployment · state"),
+        screen.getByText("resource.k8s.cluster.name · state"),
       ).toBeInTheDocument();
+
+      /*
+       * Both series are the same deployment, so it is printed once above the
+       * rows rather than on each of them. getByText throws on a second match.
+       */
+      expect(screen.getByText("deployment=web")).toBeInTheDocument();
+
+      expect(screen.getByText("kugel-eu-prod · available")).toBeInTheDocument();
       expect(
-        screen.getByText("kugel-eu-prod · web · available"),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText("kugelaudio-prod-us-west-2 · web · desired"),
+        screen.getByText("kugelaudio-prod-us-west-2 · desired"),
       ).toBeInTheDocument();
 
       // The reading itself is still rendered next to its series.

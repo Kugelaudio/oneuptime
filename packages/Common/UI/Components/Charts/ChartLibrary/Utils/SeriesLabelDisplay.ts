@@ -11,9 +11,17 @@
  * The keys are identical for every series on such a chart, so print them once
  * as a tooltip subtitle and let each row carry only its values.
  *
+ * A value can be shared by every series too — a chart filtered to one cluster
+ * and one model splits only on revision — and a value that is the same on
+ * every row tells the rows apart no better than the key does. Those pairs are
+ * printed once as `key=value` beside the keys, so a row wraps onto a second
+ * line only when something on it actually varies.
+ *
  * Nothing here is applied unless EVERY name on the chart parses into the same
  * key sequence: a chart whose series are plain names ("Failed generations"),
- * or one whose names disagree, renders exactly as before.
+ * or one whose names disagree, renders exactly as before. A chart with a
+ * single series keeps every key and value on its row: with nothing to tell
+ * apart, hoisting would leave the row empty.
  */
 
 import { PREVIOUS_PERIOD_SERIES_SUFFIX } from "./TooltipEntries";
@@ -32,8 +40,16 @@ const SERIES_NAME_SEGMENT_SEPARATOR: string = ", ";
 const MINIMUM_COMPRESSIBLE_SEGMENTS: number = 2;
 
 export interface SeriesLabelDisplay {
-  /** The shared keys, in order, or null when the names were left untouched. */
+  /**
+   * The keys the rows still carry values for, in order, or null when the
+   * names were left untouched.
+   */
   keyHeader: string | null;
+  /**
+   * `key=value` for every attribute whose value is the same on every series,
+   * printed once above the rows; null when every attribute varies.
+   */
+  constantHeader: string | null;
   /** Series name -> row text. A name absent from the map renders unchanged. */
   labels: Map<string, string>;
 }
@@ -92,6 +108,7 @@ export function getSeriesLabelDisplay(
 ): SeriesLabelDisplay {
   const unchanged: SeriesLabelDisplay = {
     keyHeader: null,
+    constantHeader: null,
     labels: new Map<string, string>(),
   };
 
@@ -138,14 +155,71 @@ export function getSeriesLabelDisplay(
     return unchanged;
   }
 
+  const parsedNames: Array<ParsedSeriesName> = Array.from(
+    parsedByName.values(),
+  );
+  const firstValues: Array<string> = parsedNames[0]!.values;
+
+  /*
+   * An attribute whose value never differs cannot tell two rows apart, so it
+   * is printed once with its key instead of on every row. Indexes are kept
+   * in group-by order on both sides, which is the order the reader already
+   * learned from the chart's legend.
+   */
+  const varyingIndexes: Array<number> = [];
+  const constantIndexes: Array<number> = [];
+
+  sharedKeys.forEach((_key: string, index: number) => {
+    const isConstant: boolean = parsedNames.every(
+      (parsed: ParsedSeriesName) => {
+        return parsed.values[index] === firstValues[index];
+      },
+    );
+
+    (isConstant ? constantIndexes : varyingIndexes).push(index);
+  });
+
+  /*
+   * One series, or several that differ only by the previous-period suffix:
+   * every value is "constant", and hoisting them all would leave each row
+   * with nothing on it. Keep the pre-existing shape instead.
+   */
+  const hoistedIndexes: Array<number> =
+    varyingIndexes.length > 0 ? constantIndexes : [];
+  const rowIndexes: Array<number> =
+    varyingIndexes.length > 0
+      ? varyingIndexes
+      : sharedKeys.map((_key: string, index: number) => {
+          return index;
+        });
+
   const labels: Map<string, string> = new Map<string, string>();
 
   for (const [category, parsed] of parsedByName) {
     labels.set(
       category,
-      parsed.values.join(SERIES_LABEL_SEPARATOR) + parsed.suffix,
+      rowIndexes
+        .map((index: number) => {
+          return parsed.values[index]!;
+        })
+        .join(SERIES_LABEL_SEPARATOR) + parsed.suffix,
     );
   }
 
-  return { keyHeader: sharedKeys.join(SERIES_LABEL_SEPARATOR), labels };
+  return {
+    keyHeader: rowIndexes
+      .map((index: number) => {
+        return sharedKeys![index]!;
+      })
+      .join(SERIES_LABEL_SEPARATOR),
+    constantHeader:
+      hoistedIndexes.length > 0
+        ? hoistedIndexes
+            .map((index: number) => {
+              return `${sharedKeys![index]}=${firstValues[index]}`;
+            })
+            .join(SERIES_LABEL_SEPARATOR)
+        : null,
+    labels,
+  };
 }
