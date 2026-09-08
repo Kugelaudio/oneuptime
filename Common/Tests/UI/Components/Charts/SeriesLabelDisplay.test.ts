@@ -17,12 +17,13 @@ describe("getSeriesLabelDisplay", () => {
   test("lifts the shared keys out of grouped series names", () => {
     const display: SeriesLabelDisplay = getSeriesLabelDisplay([
       "resource.k8s.cluster.name=kugel-eu-prod, deployment=web, state=desired",
-      "resource.k8s.cluster.name=kugelaudio-prod-us-west-2, deployment=web, state=available",
+      "resource.k8s.cluster.name=kugelaudio-prod-us-west-2, deployment=ingress, state=available",
     ]);
 
     expect(display.keyHeader).toBe(
       "resource.k8s.cluster.name · deployment · state",
     );
+    expect(display.constantHeader).toBeNull();
     expect(
       display.labels.get(
         "resource.k8s.cluster.name=kugel-eu-prod, deployment=web, state=desired",
@@ -30,9 +31,54 @@ describe("getSeriesLabelDisplay", () => {
     ).toBe("kugel-eu-prod · web · desired");
     expect(
       display.labels.get(
-        "resource.k8s.cluster.name=kugelaudio-prod-us-west-2, deployment=web, state=available",
+        "resource.k8s.cluster.name=kugelaudio-prod-us-west-2, deployment=ingress, state=available",
       ),
-    ).toBe("kugelaudio-prod-us-west-2 · web · available");
+    ).toBe("kugelaudio-prod-us-west-2 · ingress · available");
+  });
+
+  test("prints a value shared by every series once instead of on every row", () => {
+    const display: SeriesLabelDisplay = getSeriesLabelDisplay([
+      "resource.k8s.cluster.name=kugel-eu-prod, revision=67998f55c, model_key=kugel-3, transport=http",
+      "resource.k8s.cluster.name=kugel-eu-prod, revision=67998f55c, model_key=kugel-3, transport=websocket",
+      "resource.k8s.cluster.name=kugel-eu-prod, revision=6dfdf79dc, model_key=kugel-3, transport=http",
+    ]);
+
+    /*
+     * Cluster and model are the same on all three rows, so they cannot tell
+     * them apart; what remains is short enough to stay on one line.
+     */
+    expect(display.constantHeader).toBe(
+      "resource.k8s.cluster.name=kugel-eu-prod · model_key=kugel-3",
+    );
+    expect(display.keyHeader).toBe("revision · transport");
+    expect(
+      display.labels.get(
+        "resource.k8s.cluster.name=kugel-eu-prod, revision=6dfdf79dc, model_key=kugel-3, transport=http",
+      ),
+    ).toBe("6dfdf79dc · http");
+  });
+
+  test("keeps the hoisted pairs and the row values in group-by order", () => {
+    const display: SeriesLabelDisplay = getSeriesLabelDisplay([
+      "a=1, b=shared, c=2, d=also-shared",
+      "a=3, b=shared, c=4, d=also-shared",
+    ]);
+
+    expect(display.constantHeader).toBe("b=shared · d=also-shared");
+    expect(display.keyHeader).toBe("a · c");
+    expect(display.labels.get("a=3, b=shared, c=4, d=also-shared")).toBe(
+      "3 · 4",
+    );
+  });
+
+  test("keeps every value on the row when a single series makes them all constant", () => {
+    const name: string = "cluster=eu, deployment=web, state=available";
+
+    const display: SeriesLabelDisplay = getSeriesLabelDisplay([name]);
+
+    expect(display.constantHeader).toBeNull();
+    expect(display.keyHeader).toBe("cluster · deployment · state");
+    expect(display.labels.get(name)).toBe("eu · web · available");
   });
 
   test("keeps the compare-to-previous-period marker on the row", () => {
@@ -73,6 +119,7 @@ describe("getSeriesLabelDisplay", () => {
     const display: SeriesLabelDisplay = getSeriesLabelDisplay(categories);
 
     expect(display.keyHeader).toBeNull();
+    expect(display.constantHeader).toBeNull();
     expect(display.labels.size).toBe(0);
   });
 });
