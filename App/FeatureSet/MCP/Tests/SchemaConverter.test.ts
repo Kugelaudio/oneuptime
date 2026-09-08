@@ -14,6 +14,7 @@ import {
   ZodToJsonSchemaResult,
 } from "../Tools/SchemaConverter";
 import { ModelSchemaType } from "Common/Utils/Schema/ModelSchema";
+import z from "Common/Utils/Schema/Zod";
 
 /**
  * Build a minimal object matching the ZodField shape the converter reads
@@ -36,7 +37,7 @@ describe("SchemaConverter", () => {
         createdAt: {
           _def: {
             typeName: "ZodOptional",
-            innerType: { _def: {} },
+            innerType: { _def: { typeName: "ZodString" } },
             openapi: {
               metadata: {
                 type: "string",
@@ -95,14 +96,14 @@ describe("SchemaConverter", () => {
       expect(result.properties["name"]?.enum).toBeUndefined();
     });
 
-    it("falls back to a string property when no metadata exists", () => {
+    it("rejects unknown schema nodes instead of inventing strings", () => {
       const schema: ModelSchemaType = makeFakeSchema({
         title: { _def: {} },
       });
 
-      const result: ZodToJsonSchemaResult = zodToJsonSchema(schema);
-
-      expect(result.properties["title"]?.type).toBe("string");
+      expect(() => {
+        return zodToJsonSchema(schema);
+      }).toThrow(/Unsupported Zod schema/);
     });
   });
 
@@ -141,6 +142,43 @@ describe("SchemaConverter", () => {
         "on_call_duty_policy",
       );
       expect(sanitizeToolName("Incident States")).toBe("incident_states");
+    });
+  });
+});
+
+describe("recursive schema conversion", () => {
+  it("preserves scalar types, union operators, nulls and dictionary values", () => {
+    const schema: ModelSchemaType = z.object({
+      filters: z.record(
+        z.union([
+          z.string(),
+          z.object({ _type: z.literal("Search"), value: z.string() }),
+        ]),
+      ),
+      nested: z.object({
+        enabled: z.boolean(),
+        thresholds: z.array(z.number()),
+        label: z.string().nullable().optional(),
+      }),
+    });
+    const converted: ZodToJsonSchemaResult = zodToJsonSchema(schema);
+    expect(converted.properties["nested"]).toMatchObject({
+      type: "object",
+      required: ["enabled", "thresholds"],
+      properties: {
+        enabled: { type: "boolean" },
+        thresholds: { type: "array", items: { type: "number" } },
+        label: { anyOf: [{ type: "string" }, { type: "null" }] },
+      },
+    });
+    expect(converted.properties["filters"]).toMatchObject({
+      type: "object",
+      additionalProperties: {
+        anyOf: [
+          { type: "string" },
+          { type: "object", required: ["_type", "value"] },
+        ],
+      },
     });
   });
 });

@@ -1,6 +1,11 @@
 # OneUptime MCP Server
 
-A Model Context Protocol (MCP) server that exposes OneUptime to AI agents. It lets MCP-compatible clients (Claude, VS Code with Copilot, Cursor, and others) manage incidents, alerts, monitors, status pages, on-call, and telemetry through ~155 tools.
+A Model Context Protocol (MCP) server for investigating requests, services and
+releases. This fork defaults to nine read-only tools; the optional advanced
+profile exposes 167 tools in the current registry before write-policy filtering.
+These capabilities describe this source version. Deploy its App image and
+reconnect clients before relying on them; upstream hosted OneUptime may expose a
+different catalog.
 
 ## How it works
 
@@ -87,34 +92,97 @@ Create a **project API key** in OneUptime under **Project Settings → API Keys*
 
 > **Warning — never give an AI agent a master key.** A OneUptime *master* API key is also accepted on this header and grants instance-wide admin access. Always use a project-scoped API key with least privilege for AI agents.
 
-Public status page tools and `oneuptime_help` / `oneuptime_list_resources` work without any API key.
+`oneuptime_help` / `oneuptime_list_resources` work without an API key. Public
+status-page tools also need no key when exposed by the advanced profile. All
+investigation data calls require the caller's project API key.
 
 ## Tool catalog
 
-### Database resources — full CRUD
+### Investigation profile (default)
 
-Each of these 22 models gets six tools: `create_`, `get_`, `list_`, `update_`, `delete_`, `count_` (e.g. `create_incident`, `get_incident`, `list_incidents`, `update_incident`, `delete_incident`, `count_incidents`):
+Set `MCP_TOOL_PROFILE=investigation` or leave it unset. Discovery and call
+dispatch expose only these nine tools; calling a hidden tool by name is rejected.
 
-Incident, Alert, Monitor, Status Page, Scheduled Maintenance Event, Team, Monitor Status, On-Call Policy, Incident State, Incident Severity, Alert State, Alert Severity, Incident State Timeline, Alert State Timeline, Incident Public Note, Incident Internal Note, Alert Internal Note, Status Page Announcement, Scheduled Maintenance State, Scheduled Maintenance State Timeline, Label, Monitor Status Event.
+| Tool | Result |
+|---|---|
+| `search_requests` | Observed HTTP requests and logical WebSocket generations, with organization, endpoint, outcome, duration, model, version and trace identity where recorded |
+| `get_trace` | Ordered spans with parents/depth, correlated logs, failures, slow operations and coverage gaps |
+| `investigate_service` | Whole-window server-operation count, error rate and p95, grouped error operations and example traces |
+| `compare_release` | Equal before/after windows around a verified service deployment in one environment and cluster |
+| `search_logs` | Compact rows filtered by workload, text, severity and time, with continuation arguments |
+| `query_metrics` | A named metric aggregated into time buckets, optionally grouped by up to three attribute keys |
+| `oneuptime_whoami` | The OneUptime project identified by the calling API key |
+| `oneuptime_help` | Tools and examples for the selected profile |
+| `oneuptime_list_resources` | Discovery for the selected profile |
 
-### Telemetry resources — read-only
+Time filters accept `since: "30m"`, `"2h"`, `"7d"` or an ISO timestamp with a
+timezone. `until` defaults to now; the default lookback is one hour and the
+maximum window is seven days. Release-marker lookup defaults to 24 hours.
+`tts`, `ingress` and `normalizer` resolve known service aliases. Optional
+organization and application-project filters require those structured attributes
+in the selected telemetry; log text alone is not an indexed identity.
 
-Log, Metric, Span, Exception Instance, and Monitor Log get `list_` and `count_` tools only (e.g. `list_logs`, `count_spans`, `list_exception_instances`). There are no create tools for telemetry — ingestion happens via OpenTelemetry.
+**Requests and traces.** Search resolves the organization's bearing spans first,
+then expands their traces so untagged children and parents remain visible. HTTP
+requests own their downstream work; WebSocket `tts.turn` generations retain their
+own identity separately from the connection. A request spanning multiple services
+can match a service/version filter on a child span; its summary describes the
+owning request. Organization-filtered results exclude groups bearing conflicting
+organization IDs. These are observed telemetry records, not billing totals.
 
-### Workflow tools
+Request pages default to 20 rows (maximum 100), with `skip` up to 1000. Each scan
+reads at most 2000 candidate spans, expands at most 100 traces and reads at most
+5000 expanded spans. Follow returned `next.arguments` to page the observed
+matches with a fixed time window; if `coverage.scanTruncated` is true, narrow the
+window. Pagination does not extend the scan. `get_trace` reads at most 2000 spans
+and 200 correlated logs inside its requested window. Missing parents, cycles,
+truncation, sampling, retention and pending ingestion are coverage limits; no
+missing parent does not prove a complete trace. Linked connection traces remain
+separate.
 
-Purpose-built shortcuts for incident/alert response (`App/FeatureSet/MCP/Tools/WorkflowTools.ts`):
+**Service statistics.** Counts and p95 aggregate the entire filtered window,
+using `SPAN_KIND_SERVER` as the denominator and span error status for errors.
+They count server operations, not unique customer requests or WebSocket
+generations. Error groups are capped at 200 and example traces at 10; these caps
+do not turn the examples into statistical estimates. `no_errors_observed` is not
+a guarantee of availability or instrumentation coverage.
 
-- `acknowledge_incident`, `resolve_incident`
-- `acknowledge_alert`, `resolve_alert`
-- `add_incident_note` (with `visibility: "internal" | "public"` — public notes post to the status page)
-- `add_alert_note`
-- `oneuptime_whoami` — returns the project (ID and name) the API key belongs to
+**Release comparison.** Require `service`, `environment` and `cluster`.
+`windowMinutes` defaults to 30 and accepts 5–360. The lookup uses completed
+speech-stack deployment markers and deduplicates `deployment.event_id`; marker
+history is capped at 1000 rows and truncation returns `insufficient_data`. Both
+windows must have matured, avoid another deployment, and contain at least 30
+server operations with complete aggregates. Before includes all observed
+versions; after selects the deployed version. A completion marker can follow the
+start of traffic shifting or a bake period. Differences are time-correlated
+evidence, not proof the deployment caused a regression. Missing markers require
+producer activation, not an assumption that no deployments occurred.
 
-### Helper and public tools
+**Logs and metrics.** Log pages default to 20, maximum 100, with `skip` up to
+100000; use `next.arguments` to preserve the time window. Bodies are capped at
+2000 characters with `bodyTruncated`. Stored severity can reflect stderr
+fallback. Metrics retain native units and support Count/Avg/Sum/Min/Max and
+P50/P90/P95/P99 across minute through day buckets or the total window; aggregate
+output is capped at 200 rows with explicit truncation. `Count` counts telemetry
+points, missing data is not zero, and cumulative counters need rate-aware
+interpretation.
 
-- `oneuptime_help`, `oneuptime_list_resources`
-- No API key needed: `get_public_status_page_overview`, `get_public_status_page_incidents`, `get_public_status_page_scheduled_maintenance`, `get_public_status_page_announcements`
+### Advanced profile
+
+Set `MCP_TOOL_PROFILE=advanced` to include the investigation tools plus the
+generated database CRUD tools, telemetry `list_`/`count_` tools, public status-page
+tools and incident/alert acknowledgement, resolution and note workflows. Inspect
+`oneuptime_help` or `/mcp/tools` for the exact current registry; model additions
+can change its size. `MCP_READ_ONLY=true` removes mutations and
+`MCP_ALLOW_DESTRUCTIVE=false` removes destructive tools. These are server-side
+filters; every remaining call still uses the caller's API-key permissions.
+
+Generated CRUD resources include incidents, alerts, monitors, their state and
+severity records, teams and status pages. Telemetry includes spans, logs, metrics,
+exception instances, monitor logs and change events. Advanced mutation workflows
+include `acknowledge_incident`, `resolve_incident`, `acknowledge_alert`,
+`resolve_alert`, `add_incident_note` and `add_alert_note`; public notes can appear
+on status pages.
 
 ### Annotations and results
 
@@ -151,12 +219,17 @@ Values are `"ASC"` or `"DESC"`.
 
 ### Pagination
 
-`limit` defaults to 10 (max 100); `skip` offsets into the result set. List responses return the full requested page with honest pagination metadata:
+For advanced generated list tools, `limit` defaults to 10 (max 100) and `skip`
+offsets into the result set. The adapter passes pagination in the REST query
+string. Analytics list counts are lower bounds: `totalCount` is `null`,
+`countLowerBound` carries the observed lower bound and `hasMore` carries the API's lookahead result.
+Use a corresponding `count_*` call when an exact total is required. For example:
 
 ```json
 {
   "returnedCount": 10,
-  "totalCount": 42,
+  "totalCount": null,
+  "countLowerBound": 11,
   "skip": 0,
   "limit": 10,
   "hasMore": true,
@@ -164,16 +237,24 @@ Values are `"ASC"` or `"DESC"`.
 }
 ```
 
-## Example workflow
+## Example investigation
 
-A typical incident-response loop an agent can run:
+Call `search_requests` with:
 
-1. `oneuptime_whoami` — confirm which project the key belongs to.
-2. `list_incidents` with `{"sort": {"createdAt": "DESC"}, "limit": 5}` — find the active incident.
-3. `acknowledge_incident` — take ownership.
-4. `list_logs` with a time-range filter (`{"time": {"_type": "GreaterThan", "value": "..."}}`) and `list_exception_instances` — investigate.
-5. `add_incident_note` with `"visibility": "public"` — post a status update for customers.
-6. `resolve_incident` — close it out.
+```json
+{"organization":"13","since":"2h","status":"error","limit":20}
+```
+
+Then call `get_trace` with a returned `traceId` and the exact `since`/`until`
+from the search response's scope. A service overview uses:
+
+```json
+{"service":"tts","environment":"production","cluster":"kugel-eu-prod","since":"30m"}
+```
+
+Pass that object to `investigate_service`. To compare the latest matching
+verified release, call `compare_release` with the same service/environment/cluster
+and `windowMinutes: 30`; omit `since` to use the 24-hour marker lookup.
 
 ## HTTP endpoints
 
@@ -188,6 +269,21 @@ A typical incident-response loop an agent can run:
 ## Self-hosting
 
 The MCP server ships as part of the App container and is served at `/mcp` behind Nginx — no separate deployment is needed. The OneUptime API URL it talks to is derived from the `HOST` and `HTTP_PROTOCOL` environment variables via `Common/Server/EnvironmentConfig` (inherited from the App service's environment). API keys are never configured on the server; clients supply them per request.
+
+Organization names/public IDs optionally resolve from a file named by
+`MCP_ORGANIZATION_DIRECTORY_FILE`:
+
+```json
+{"schemaVersion":1,"projectId":"<OneUptime-project-UUID>","generatedAt":"<current-ISO-time>","organizations":[{"id":"13","name":"Acme","publicId":"org_acme"}]}
+```
+
+Generate this from application data; never mount a Supabase service-role key into
+the MCP App. The snapshot must be no more than seven days old and match the
+single OneUptime project accessible to the caller. Exact names match ignoring
+case; public IDs match exactly. Ambiguous names fail explicitly. Numeric
+organization IDs bypass the directory and remain available without it. The
+KugelAudio monorepo owns the exporter, Terraform ConfigMap mount and release-event
+producer in `packages/private/tools/scripts/mcp/` and `infrastructure/oneuptime/`.
 
 ## Development
 

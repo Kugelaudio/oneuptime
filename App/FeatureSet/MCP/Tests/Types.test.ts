@@ -209,7 +209,7 @@ describe("OneUptime Types", () => {
         query: { status: "active" },
         limit: 10,
         skip: 0,
-        sort: { createdAt: -1 },
+        sort: { createdAt: "DESC" },
         select: { name: 1, description: 1 },
       };
 
@@ -252,8 +252,8 @@ describe("OneUptime Types", () => {
           ],
         },
         sort: {
-          priority: -1,
-          createdAt: 1,
+          priority: "DESC",
+          createdAt: "ASC",
         },
         select: {
           name: 1,
@@ -263,7 +263,7 @@ describe("OneUptime Types", () => {
       };
 
       expect(complexArgs.query).toHaveProperty("$and");
-      expect(complexArgs.sort).toHaveProperty("priority", -1);
+      expect(complexArgs.sort).toHaveProperty("priority", "DESC");
       expect(complexArgs.select).toHaveProperty("name", 1);
     });
 

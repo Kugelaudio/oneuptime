@@ -1,46 +1,26 @@
-/**
- * Schema Converter
- * Converts Zod schemas to JSON Schema format for MCP tools
- */
-
+/** Converts model Zod schemas to the JSON Schema contract exposed over MCP. */
 import { JSONSchemaProperty } from "../Types/McpTypes";
 import { ModelSchemaType } from "Common/Utils/Schema/ModelSchema";
 import { AnalyticsModelSchemaType } from "Common/Utils/Schema/AnalyticsModelSchema";
 
-// Type for Zod field definition
-interface ZodFieldDef {
-  typeName?: string;
-  innerType?: ZodField;
-  description?: string;
-  openapi?: {
-    metadata?: OpenApiMetadata;
-  };
-}
-
-// Type for Zod field
 interface ZodField {
-  _def?: ZodFieldDef;
-}
-
-// Type for OpenAPI metadata
-interface OpenApiMetadata {
-  type?: string;
-  description?: string;
-  example?: unknown;
-  format?: string;
-  default?: unknown;
-  items?: JSONSchemaProperty;
-  enum?: Array<string | number | boolean>;
-}
-
-// Type for Zod schema with shape
-interface ZodSchemaWithShape {
   _def?: {
+    typeName?: string;
+    innerType?: ZodField;
+    schema?: ZodField;
+    type?: ZodField;
+    valueType?: ZodField;
     shape?: () => Record<string, ZodField>;
+    options?: ZodField[];
+    values?: Array<string | number | boolean>;
+    value?: string | number | boolean | null;
+    description?: string;
+    unknownKeys?: string;
+    defaultValue?: () => unknown;
+    openapi?: { metadata?: JSONSchemaProperty & { example?: unknown } };
   };
 }
 
-// Result type for schema conversion
 export interface ZodToJsonSchemaResult {
   type: string;
   properties: Record<string, JSONSchemaProperty>;
@@ -48,143 +28,143 @@ export interface ZodToJsonSchemaResult {
   additionalProperties: boolean;
 }
 
-/**
- * Convert a Zod schema to JSON Schema format for MCP tools
- */
 export function zodToJsonSchema(
   zodSchema: ModelSchemaType | AnalyticsModelSchemaType,
 ): ZodToJsonSchemaResult {
-  try {
-    const schemaWithShape: ZodSchemaWithShape =
-      zodSchema as unknown as ZodSchemaWithShape;
-    const shapeFunction: (() => Record<string, ZodField>) | undefined =
-      schemaWithShape._def?.shape;
-
-    if (!shapeFunction) {
-      return createEmptySchema();
-    }
-
-    const shape: Record<string, ZodField> = shapeFunction();
-    const properties: Record<string, JSONSchemaProperty> = {};
-    const required: string[] = [];
-
-    for (const [key, value] of Object.entries(shape)) {
-      const { property, isRequired } = convertZodField(key, value);
-      properties[key] = property;
-
-      if (isRequired) {
-        required.push(key);
-      }
-    }
-
-    const result: ZodToJsonSchemaResult = {
-      type: "object",
-      properties,
-      additionalProperties: false,
-    };
-
-    if (required.length > 0) {
-      result.required = required;
-    }
-
-    return result;
-  } catch {
-    return createEmptySchema();
+  const field: ZodField = zodSchema as unknown as ZodField;
+  if (!field._def?.shape) {
+    throw new Error("MCP model schema must be a Zod object");
   }
+  return convertObject(field) as ZodToJsonSchemaResult;
 }
 
-/**
- * Convert a single Zod field to JSON Schema property
- */
-function convertZodField(
-  key: string,
-  zodField: ZodField,
-): { property: JSONSchemaProperty; isRequired: boolean } {
-  // Handle ZodOptional fields by looking at the inner type
-  let actualField: ZodField = zodField;
-  let isOptional: boolean = false;
-
-  if (zodField._def?.typeName === "ZodOptional") {
-    actualField = zodField._def.innerType || zodField;
-    isOptional = true;
+function convertObject(field: ZodField): JSONSchemaProperty {
+  const properties: Record<string, JSONSchemaProperty> = {};
+  const required: string[] = [];
+  for (const [key, value] of Object.entries(field._def!.shape!())) {
+    properties[key] = convertField(value, key);
+    if (!["ZodOptional", "ZodDefault"].includes(value._def?.typeName || "")) {
+      required.push(key);
+    }
   }
-
-  // Extract OpenAPI metadata
-  const openApiMetadata: OpenApiMetadata | undefined =
-    actualField._def?.openapi?.metadata || zodField._def?.openapi?.metadata;
-
-  // Clean up description
-  const rawDescription: string =
-    zodField._def?.description ||
-    openApiMetadata?.description ||
-    `${key} field`;
-  const cleanDescription: string = cleanFieldDescription(rawDescription);
-
-  let property: JSONSchemaProperty;
-
-  if (openApiMetadata) {
-    property = buildPropertyFromMetadata(
-      openApiMetadata,
-      key,
-      cleanDescription,
-    );
-  } else {
-    // Fallback for fields without OpenAPI metadata
-    property = {
-      type: "string",
-      description: cleanDescription,
-    };
-  }
-
   return {
-    property,
-    isRequired: !isOptional,
+    type: "object",
+    properties,
+    additionalProperties: field._def?.unknownKeys === "passthrough",
+    ...(required.length ? { required } : {}),
   };
 }
 
-/**
- * Build JSON Schema property from OpenAPI metadata
- */
-function buildPropertyFromMetadata(
-  metadata: OpenApiMetadata,
-  key: string,
-  description: string,
-): JSONSchemaProperty {
-  const property: JSONSchemaProperty = {
-    type: metadata.type || "string",
-    description,
-  };
-
-  // Add optional fields if present
-  if (metadata.example !== undefined) {
-    (property as JSONSchemaProperty & { example: unknown }).example =
-      metadata.example;
+function convertField(field: ZodField, key: string): JSONSchemaProperty {
+  const def: NonNullable<ZodField["_def"]> = field._def || {};
+  let property: JSONSchemaProperty;
+  switch (def.typeName) {
+    case "ZodOptional":
+    case "ZodDefault":
+      property = convertField(def.innerType!, key);
+      if (def.defaultValue) {
+        property.default = def.defaultValue();
+      }
+      break;
+    case "ZodNullable":
+      property = {
+        anyOf: [convertField(def.innerType!, key), { type: "null" }],
+      };
+      break;
+    case "ZodEffects":
+      property = convertField(def.schema!, key);
+      break;
+    case "ZodObject":
+      property = convertObject(field);
+      break;
+    case "ZodRecord":
+      property = {
+        type: "object",
+        additionalProperties: convertField(def.valueType!, key),
+      };
+      break;
+    case "ZodUnion":
+      property = {
+        anyOf: def.options!.map((option: ZodField) => {
+          return convertField(option, key);
+        }),
+      };
+      break;
+    case "ZodArray":
+      // Entity arrays use their published reference schema, avoiding recursive model expansion.
+      property = {
+        type: "array",
+        items: def.openapi?.metadata?.items || convertField(def.type!, key),
+      };
+      break;
+    case "ZodEnum":
+      property = { type: "string", enum: def.values! };
+      break;
+    case "ZodLiteral":
+      property =
+        def.value === null
+          ? { type: "null" }
+          : { type: typeof def.value, enum: [def.value!] };
+      break;
+    case "ZodDate":
+      property = { type: "string", format: "date-time" };
+      break;
+    case "ZodString":
+      property = { type: "string" };
+      break;
+    case "ZodNumber":
+      property = { type: "number" };
+      break;
+    case "ZodBoolean":
+      property = { type: "boolean" };
+      break;
+    case "ZodNull":
+      property = { type: "null" };
+      break;
+    case "ZodAny":
+    case "ZodUnknown":
+      property = {};
+      break;
+    default:
+      if (def.openapi?.metadata?.type) {
+        property = { type: def.openapi.metadata.type };
+      } else {
+        throw new Error(
+          `Unsupported Zod schema for ${key}: ${def.typeName || "unknown"}`,
+        );
+      }
   }
-
-  if (metadata.format) {
-    property.format = metadata.format;
+  const metadata: (JSONSchemaProperty & { example?: unknown }) | undefined =
+    def.openapi?.metadata;
+  // Metadata describes presentation; it must not narrow a union to one type.
+  if (metadata) {
+    if (!property.type && !property.anyOf && metadata.type) {
+      property.type = metadata.type;
+    }
+    if (metadata.enum?.length) {
+      property.enum = metadata.enum;
+    }
+    if (metadata.format) {
+      property.format = metadata.format;
+    }
+    if (metadata.default !== undefined) {
+      property.default = metadata.default;
+    }
+    if (metadata.items && !property.items) {
+      property.items = metadata.items;
+    }
+    if (metadata.example !== undefined) {
+      (property as JSONSchemaProperty & { example?: unknown }).example =
+        metadata.example;
+    }
   }
-
-  if (metadata.default !== undefined) {
-    property.default = metadata.default;
+  const description: string | undefined =
+    def.description || metadata?.description;
+  if (description) {
+    property.description = cleanFieldDescription(description);
   }
-
-  // Preserve enums (e.g. sort order ASC/DESC) so agents see valid values
-  if (metadata.enum && metadata.enum.length > 0) {
-    property.enum = metadata.enum;
-  }
-
-  // Handle array types
-  if (metadata.type === "array") {
-    property.items = metadata.items || {
-      type: "string",
-      description: `${key} item`,
-    };
-  }
-
   return property;
 }
-
 /**
  * Clean up description by removing permission information
  */
@@ -230,17 +210,6 @@ function addPeriodIfNeeded(text: string): string {
   }
 
   return text + ".";
-}
-
-/**
- * Create an empty schema result
- */
-function createEmptySchema(): ZodToJsonSchemaResult {
-  return {
-    type: "object",
-    properties: {},
-    additionalProperties: false,
-  };
 }
 
 /**

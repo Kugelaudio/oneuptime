@@ -28,6 +28,11 @@ import {
   handlePublicStatusPageTool,
 } from "../Tools/PublicStatusPageTools";
 import { isWorkflowTool, handleWorkflowTool } from "../Tools/WorkflowTools";
+import { isRequestTool, handleRequestTool } from "../Tools/RequestTools";
+import {
+  isInvestigationTool,
+  handleInvestigationTool,
+} from "../Tools/InvestigationTools";
 import { sanitizeToolName } from "../Tools/SchemaConverter";
 import { JSONObject, JSONValue } from "Common/Types/JSON";
 import logger from "Common/Server/Utils/Logger";
@@ -209,6 +214,25 @@ async function handleCallTool(
     {}) as Record<string, unknown>;
 
   try {
+    if (
+      !tools.some((tool: McpToolInfo): boolean => {
+        return tool.name === name;
+      })
+    ) {
+      throw new McpError(
+        ErrorCode.MethodNotFound,
+        `Unknown or disabled tool: ${name}. Use oneuptime_help for this server's available tools.`,
+      );
+    }
+    if (isRequestTool(name) || isInvestigationTool(name)) {
+      if (!apiKey) {
+        throw new Error("A project-scoped API key is required.");
+      }
+      const result: string = isRequestTool(name)
+        ? await handleRequestTool(name, args, apiKey)
+        : await handleInvestigationTool(name, args, apiKey);
+      return textToToolResult(result);
+    }
     // Check if this is a helper tool (doesn't require API key)
     if (isHelperTool(name)) {
       logger.debug(`Executing helper tool: ${name}`);
@@ -386,31 +410,30 @@ function formatListResponse(
   result: unknown,
   args: OneUptimeToolCallArgs,
 ): JSONObject {
-  /*
-   * BaseAPI get-list returns { data: [...], count: <total matching rows>,
-   * skip, limit } — but the echoed skip/limit reflect the query string only,
-   * so pagination math must use our own request args plus the total count.
-   */
-  const resultObject: { data?: Array<unknown>; count?: number } | null =
-    result && typeof result === "object"
-      ? (result as { data?: Array<unknown>; count?: number })
+  const resultObject: Record<string, unknown> | null =
+    result && typeof result === "object" && !Array.isArray(result)
+      ? (result as Record<string, unknown>)
       : null;
-
-  const items: Array<unknown> = Array.isArray(result)
+  const items: unknown = Array.isArray(result)
     ? result
-    : resultObject?.data || [];
-
-  const skipUsed: number = typeof args.skip === "number" ? args.skip : 0;
-  const limitUsed: number =
-    typeof args.limit === "number" ? args.limit : LIST_DEFAULT_LIMIT;
-
-  const totalCount: number | undefined =
-    typeof resultObject?.count === "number" ? resultObject.count : undefined;
-
-  const hasMore: boolean =
-    totalCount !== undefined
+    : resultObject?.["data"];
+  if (!Array.isArray(items)) {
+    throw new Error("Invalid list response: expected a data array");
+  }
+  const skipUsed: number = args.skip ?? 0;
+  const limitUsed: number = args.limit ?? LIST_DEFAULT_LIMIT;
+  const count: number | undefined = unwrapCount(resultObject?.["count"]);
+  // Analytics uses LIMIT+1, and its count is explicitly only a lower bound.
+  const serverHasMore: unknown = resultObject?.["hasMore"];
+  const usesLookahead: boolean = typeof serverHasMore === "boolean";
+  const totalCount: number | undefined = usesLookahead ? undefined : count;
+  const hasMore: boolean | null = usesLookahead
+    ? (serverHasMore as boolean)
+    : totalCount !== undefined
       ? skipUsed + items.length < totalCount
-      : items.length >= limitUsed;
+      : items.length < limitUsed
+        ? false
+        : null;
 
   const response: JSONObject = {
     success: true,
@@ -418,21 +441,33 @@ function formatListResponse(
     resourceType: pluralName,
     returnedCount: items.length,
     totalCount: totalCount ?? null,
+    // An empty page may be beyond the end; its offset proves no row count.
+    ...(usesLookahead
+      ? {
+          countLowerBound:
+            items.length === 0
+              ? 0
+              : count ?? skipUsed + items.length + (hasMore ? 1 : 0),
+        }
+      : {}),
     skip: skipUsed,
     limit: limitUsed,
     hasMore,
     message:
       items.length === 0
-        ? `No ${pluralName} found matching the criteria`
+        ? skipUsed > 0
+          ? `No ${pluralName} returned at offset ${skipUsed}`
+          : `No ${pluralName} found matching the criteria`
         : `Returning ${items.length} of ${totalCount ?? "unknown"} matching ${
             items.length === 1 ? modelName : pluralName
           }`,
     data: items as JSONValue,
   } as JSONObject;
 
-  if (hasMore) {
+  if (hasMore !== false && items.length > 0) {
+    response["nextSkip"] = skipUsed + items.length;
     response["note"] =
-      `More results available. Repeat the call with skip=${skipUsed + items.length} to get the next page.`;
+      `${hasMore === true ? "More results available" : "More results may be available; the API did not return pagination metadata"}. Repeat the call with skip=${skipUsed + items.length} to get the next page.`;
   }
 
   return response;
@@ -466,61 +501,43 @@ function formatDeleteResponse(
   } as JSONObject;
 }
 
-function formatCountResponse(pluralName: string, result: unknown): JSONObject {
-  let totalCount: number = 0;
-
-  if (result !== null && result !== undefined) {
-    if (typeof result === "number") {
-      totalCount = result;
-    } else if (typeof result === "object") {
-      const resultObj: Record<string, unknown> = result as Record<
-        string,
-        unknown
-      >;
-
-      // Handle { count: number } format
-      if ("count" in resultObj) {
-        const countValue: unknown = resultObj["count"];
-        if (typeof countValue === "number") {
-          totalCount = countValue;
-        } else if (typeof countValue === "object" && countValue !== null) {
-          // Handle PositiveNumber or other objects with value/toNumber
-          const countObj: Record<string, unknown> = countValue as Record<
-            string,
-            unknown
-          >;
-          if (typeof countObj["value"] === "number") {
-            totalCount = countObj["value"];
-          } else if (
-            typeof (countObj as { toNumber?: () => number }).toNumber ===
-            "function"
-          ) {
-            totalCount = (countObj as { toNumber: () => number }).toNumber();
-          }
-        }
-      }
-      // Handle { data: { count: number } } format
-      else if (
-        "data" in resultObj &&
-        typeof resultObj["data"] === "object" &&
-        resultObj["data"] !== null
-      ) {
-        const dataObj: Record<string, unknown> = resultObj["data"] as Record<
-          string,
-          unknown
-        >;
-        if ("count" in dataObj && typeof dataObj["count"] === "number") {
-          totalCount = dataObj["count"];
-        }
-      }
+/** API counts can be numbers or serialized PositiveNumber objects. */
+function unwrapCount(value: unknown): number | undefined {
+  if (value && typeof value === "object") {
+    const object: Record<string, unknown> = value as Record<string, unknown>;
+    if (typeof object["toNumber"] === "function") {
+      value = (value as { toNumber: () => number }).toNumber();
+    } else {
+      value = object["value"];
     }
   }
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
 
+function formatCountResponse(pluralName: string, result: unknown): JSONObject {
+  const object: Record<string, unknown> | undefined =
+    result && typeof result === "object"
+      ? (result as Record<string, unknown>)
+      : undefined;
+  const nested: Record<string, unknown> | undefined =
+    object?.["data"] && typeof object["data"] === "object"
+      ? (object["data"] as Record<string, unknown>)
+      : undefined;
+  const totalCount: number | undefined = unwrapCount(
+    object?.["count"] ?? nested?.["count"] ?? result,
+  );
+  if (totalCount === undefined) {
+    throw new Error(
+      "Invalid count response: expected a non-negative integer count",
+    );
+  }
   return {
     success: true,
     operation: "count",
     resourceType: pluralName,
     count: totalCount,
     message: `Total count of ${pluralName}: ${totalCount}`,
-  } as JSONObject;
+  };
 }
