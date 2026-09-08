@@ -248,3 +248,27 @@ it("continues log searches with a fixed time window and the returned offset", as
   expect(second["truncated"]).toBe(false);
   expect(second["next"]).toBeNull();
 });
+
+it("filters numeric organization IDs directly in the telemetry query", async () => {
+  await investigateService({ ...args, organization: "13" }, "key");
+  for (const [request] of call.mock.calls) {
+    expect(
+      request.body.aggregateBy.query.attributes["organization.id"],
+    ).toEqual({ _type: "EqualTo", value: "13" });
+  }
+  expect(read.mock.calls[0]![2]["attributes"]["organization.id"]).toEqual({
+    _type: "EqualTo",
+    value: "13",
+  });
+});
+
+it("rejects organization names before service or release telemetry lookups", async () => {
+  await expect(
+    investigateService({ ...args, organization: "Acme" }, "key"),
+  ).rejects.toThrow("positive numeric ID");
+  await expect(
+    compareRelease({ ...args, organization: "Acme" }, "key"),
+  ).rejects.toThrow("positive numeric ID");
+  expect(call).not.toHaveBeenCalled();
+  expect(read).not.toHaveBeenCalled();
+});

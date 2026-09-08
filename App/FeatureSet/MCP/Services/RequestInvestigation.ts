@@ -1,11 +1,11 @@
 import {
   parseTimeWindow,
+  parseOrganizationId,
   telemetryQuery,
   readTelemetry,
   scalar,
   TimeWindow,
 } from "./InvestigationQuery";
-import { resolveOrganization } from "./OrganizationDirectory";
 
 const TRACE_ID: RegExp = /^[0-9a-f]{32}$/i;
 const EMPTY_SPAN_ID: RegExp = /^0+$/;
@@ -187,16 +187,10 @@ export async function searchRequests(args: Row, apiKey: string): Promise<Row> {
   ) {
     throw new Error("endpoint must be a non-empty string.");
   }
-  let organizationId: string | undefined;
-  if (args["organization"] !== undefined) {
-    if (
-      typeof args["organization"] !== "string" ||
-      !args["organization"].trim()
-    ) {
-      throw new Error("organization must be a non-empty name or ID.");
-    }
-    organizationId = await resolveOrganization(args["organization"], apiKey);
-  }
+  const organizationId: string | undefined =
+    args["organization"] === undefined
+      ? undefined
+      : parseOrganizationId(args["organization"]);
   const query: Row = telemetryQuery(args, window, "startTime");
   if (organizationId) {
     query["attributes"] = {

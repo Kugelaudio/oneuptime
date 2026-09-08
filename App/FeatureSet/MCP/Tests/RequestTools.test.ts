@@ -5,12 +5,8 @@ import {
   handleRequestTool,
 } from "../Tools/RequestTools";
 import OneUptimeApiService from "../Services/OneUptimeApiService";
-import { resolveOrganization } from "../Services/OrganizationDirectory";
 import { JSONObject } from "Common/Types/JSON";
 
-jest.mock("../Services/OrganizationDirectory", () => {
-  return { resolveOrganization: jest.fn() };
-});
 const TRACE: string = "a".repeat(32);
 const OTHER: string = "b".repeat(32);
 const TIME: string = "2026-09-08T12:00:00Z";
@@ -55,7 +51,6 @@ it("exposes read-only tools and rejects ignored filters", async () => {
 });
 
 it("finds organization-bearing descendants then includes an untagged HTTP parent once", async () => {
-  jest.mocked(resolveOrganization).mockResolvedValue("1");
   const parent: JSONObject = span("http", {
     kind: "SPAN_KIND_SERVER",
     attributes: {
@@ -88,11 +83,10 @@ it("finds organization-bearing descendants then includes an untagged HTTP parent
   const result: Record<string, any> = readResult(
     await handleRequestTool(
       "search_requests",
-      { ...WINDOW, organization: "Acme" },
+      { ...WINDOW, organization: "1" },
       "key",
     ),
   );
-  expect(resolveOrganization).toHaveBeenCalledWith("Acme", "key");
   expect(result["requests"]).toHaveLength(1);
   expect(result["requests"][0]).toMatchObject({
     spanId: "http",
@@ -166,7 +160,6 @@ it("keeps WS generations distinct from connections and excludes billing-only tra
 });
 
 it("does not attribute a mixed-organization request to either tenant", async () => {
-  jest.mocked(resolveOrganization).mockResolvedValue("1");
   const parent: JSONObject = span("root", {
     kind: "SPAN_KIND_SERVER",
     attributes: { "http.method": "POST" },
@@ -270,17 +263,14 @@ it("does not count downstream HTTP server spans as another customer request", as
   expect(result["requests"][0].endpoint).toBe("/v1/tts");
 });
 
-it("fails before querying when organization resolution is unavailable", async () => {
-  jest
-    .mocked(resolveOrganization)
-    .mockRejectedValue(new Error("Directory not configured"));
+it("rejects organization names before querying", async () => {
   const spy: jest.SpyInstance<
     ReturnType<typeof OneUptimeApiService.makeAuthenticatedApiCall>,
     Parameters<typeof OneUptimeApiService.makeAuthenticatedApiCall>
   > = jest.spyOn(OneUptimeApiService, "makeAuthenticatedApiCall");
   await expect(
     handleRequestTool("search_requests", { organization: "Acme" }, "key"),
-  ).rejects.toThrow("Directory not configured");
+  ).rejects.toThrow("positive numeric ID");
   expect(spy).not.toHaveBeenCalled();
 });
 
