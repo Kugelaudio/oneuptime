@@ -130,12 +130,11 @@ function createHelpTool(): McpToolInfo {
     description: `Get help and guidance for using the OneUptime MCP server. Returns information about available resources and common operations. Use this tool first to understand what you can do with OneUptime.
 
 COMMON WORKFLOWS:
-1. Orient yourself: Use oneuptime_whoami to see your project, oneuptime_list_resources to see what you can work with
-2. List incidents: Use list_incidents to see current incidents
-3. Respond: Use acknowledge_incident / resolve_incident / add_incident_note
-4. Investigate: Use list_logs, list_metrics, list_spans, list_monitor_logs (always with a time-range filter)
-5. Create incident: Use list_incident_severities to get a severity ID, then create_incident
-6. Filter or sort on a field: Use ${DESCRIBE_RESOURCE_TOOL_NAME} to see a resource's fields`,
+- search_requests: organization/customer requests, then get_trace for spans and logs.
+- investigate_service: whole-window errors, latency and representative traces.
+- compare_release: equal windows around a verified deployment marker.
+- search_logs and query_metrics: focused telemetry queries.
+Use oneuptime_list_resources for the actual tools enabled here. The server's MCP_TOOL_PROFILE=advanced exposes the generated CRUD catalog; there, use ${DESCRIBE_RESOURCE_TOOL_NAME} to see a resource's fields. Default investigation tools are read-only.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -226,6 +225,51 @@ export function handleHelperTool(
   args: Record<string, unknown>,
   resourceTools: McpToolInfo[],
 ): string {
+  const investigationProfile: boolean =
+    resourceTools.some((tool: McpToolInfo) => {
+      return tool.name === "search_requests";
+    }) &&
+    !resourceTools.some((tool: McpToolInfo) => {
+      return tool.name === "list_spans";
+    });
+  if (investigationProfile) {
+    return JSON.stringify({
+      success: true,
+      profile: "investigation",
+      topic: args["topic"] || "general",
+      tools: resourceTools.map((tool: McpToolInfo) => {
+        return {
+          name: tool.name,
+          description: tool.description,
+        };
+      }),
+      examples: {
+        customerFailures: {
+          tool: "search_requests",
+          args: { organization: "13", since: "2h", status: "error" },
+        },
+        requestDetail: {
+          tool: "get_trace",
+          args: { traceId: "<trace-id>", since: "2h" },
+        },
+        service: {
+          tool: "investigate_service",
+          args: { service: "tts", environment: "production", since: "30m" },
+        },
+        release: {
+          tool: "compare_release",
+          args: {
+            service: "tts",
+            environment: "production",
+            cluster: "<cluster>",
+            since: "24h",
+          },
+        },
+      },
+      guidance:
+        'Organization filters require a positive numeric application ID string, for example "13"; names and public IDs are not accepted. Results include coverage/truncation. Empty telemetry is not proof of health. MCP_TOOL_PROFILE=advanced enables raw CRUD tools; reconnect after changing server configuration.',
+    });
+  }
   const resourceList: ResourceInfo[] = getResources(resourceTools);
 
   if (toolName === "oneuptime_help") {
@@ -391,7 +435,7 @@ function handleHelpTool(
             sort: { time: "DESC" },
           },
         },
-        countActiveIncidents: {
+        countAllIncidents: {
           tool: "count_incidents",
           args: { query: {} },
         },

@@ -100,17 +100,17 @@ describe("formatToolResponse", () => {
       expect(result["hasMore"]).toBe(false);
     });
 
-    it("falls back to a full-page heuristic when the API total is absent", () => {
+    it("reports unknown pagination when a full page lacks API metadata", () => {
       const result: JSONObject = formatToolResponse(
         makeTool(OneUptimeOperation.List),
         makeItems(10),
         {} as OneUptimeToolCallArgs,
       );
 
-      // Bare array, default limit 10 → a full page implies more may exist.
+      // A full page alone does not prove whether a next page exists.
       expect(result["totalCount"]).toBeNull();
       expect(result["returnedCount"]).toBe(10);
-      expect(result["hasMore"]).toBe(true);
+      expect(result["hasMore"]).toBeNull();
     });
 
     it("reports an empty result set with a friendly message", () => {
@@ -203,5 +203,75 @@ describe("formatToolResponse", () => {
       expect(result["operation"]).toBe("create");
       expect((result["data"] as JSONObject)["_id"]).toBe("new-1");
     });
+  });
+});
+
+describe("truthful pagination and counts", () => {
+  it("uses server lookahead and never calls an analytics lower bound an exact total", () => {
+    const result: JSONObject = formatToolResponse(
+      makeTool(OneUptimeOperation.List),
+      {
+        data: makeItems(50),
+        count: { _type: "PositiveNumber", value: 101 },
+        hasMore: true,
+      },
+      { skip: 50, limit: 50 },
+    );
+    expect(result["hasMore"]).toBe(true);
+    expect(result["totalCount"]).toBeNull();
+    expect(result["countLowerBound"]).toBe(101);
+    expect(result["nextSkip"]).toBe(100);
+  });
+  it("honors false lookahead on an exactly full final page", () => {
+    const result: JSONObject = formatToolResponse(
+      makeTool(OneUptimeOperation.List),
+      { data: makeItems(10), count: 20, hasMore: false },
+      { skip: 10, limit: 10 },
+    );
+    expect(result["hasMore"]).toBe(false);
+    expect(result["totalCount"]).toBeNull();
+    expect(result["countLowerBound"]).toBe(20);
+  });
+  it("unwraps exact database totals", () => {
+    const result: JSONObject = formatToolResponse(
+      makeTool(OneUptimeOperation.List),
+      { data: makeItems(5), count: { value: 12 } },
+      { limit: 5 },
+    );
+    expect(result["totalCount"]).toBe(12);
+    expect(result["hasMore"]).toBe(true);
+  });
+  it("does not invent zero when a count response is malformed", () => {
+    expect(() => {
+      return formatToolResponse(
+        makeTool(OneUptimeOperation.Count),
+        { error: "bad response" },
+        {},
+      );
+    }).toThrow(/count/i);
+  });
+  it("does not invent an empty list when a list response is malformed", () => {
+    expect(() => {
+      return formatToolResponse(
+        makeTool(OneUptimeOperation.List),
+        { error: "bad response" },
+        {},
+      );
+    }).toThrow(/list/i);
+  });
+});
+
+describe("offset past the last telemetry row", () => {
+  it("does not treat an empty page offset as proof of matching rows", () => {
+    const result: JSONObject = formatToolResponse(
+      makeTool(OneUptimeOperation.List),
+      { data: [], count: { value: 100 }, hasMore: false },
+      { skip: 100, limit: 10 },
+    );
+    expect(result["totalCount"]).toBeNull();
+    expect(result["countLowerBound"]).toBe(0);
+    expect(result["hasMore"]).toBe(false);
+    expect(result["message"]).toBe("No Incidents returned at offset 100");
+    expect(result["nextSkip"]).toBeUndefined();
   });
 });

@@ -1,6 +1,11 @@
 # OneUptime MCP Server
 
-A Model Context Protocol (MCP) server that exposes OneUptime to AI agents. It lets MCP-compatible clients (Claude, VS Code with Copilot, Cursor, and others) manage incidents, alerts, monitors, status pages, on-call, and telemetry through about 290 tools.
+A Model Context Protocol (MCP) server for investigating requests, services and
+releases. This fork defaults to nine read-only tools; the optional advanced
+profile exposes upstream's full generated catalog (about 290 tools) before write-policy filtering.
+These capabilities describe this source version. Deploy its App image and
+reconnect clients before relying on them; upstream hosted OneUptime may expose a
+different catalog.
 
 ## How it works
 
@@ -122,19 +127,103 @@ The code is in `OAuth/`; each file opens with the reasoning behind it. The shape
 
 Two settings: `DISABLE_MCP_OAUTH=true` switches the whole thing off (the routes answer 404 and an unauthenticated tool call gets the in-band "API key is required" result it always got), and `DISABLE_MCP_OAUTH_CLIENT_ID_METADATA_DOCUMENTS=true` is for instances that cannot make outbound requests.
 
+In the default investigation profile, every investigation data call needs the caller's project API key or OAuth sign-in.
+
 ## Tool catalog
 
-### Database resources — full CRUD
+### Investigation profile (default)
+
+Set `MCP_TOOL_PROFILE=investigation` or leave it unset. Discovery and call
+dispatch expose only these nine tools; calling a hidden tool by name is rejected.
+
+| Tool | Result |
+|---|---|
+| `search_requests` | Observed HTTP requests and logical WebSocket generations, with organization, endpoint, outcome, duration, model, version and trace identity where recorded |
+| `get_trace` | Ordered spans with parents/depth, correlated logs, failures, slow operations and coverage gaps |
+| `investigate_service` | Whole-window server-operation count, error rate and p95, grouped error operations and example traces |
+| `compare_release` | Equal before/after windows around a verified service deployment in one environment and cluster |
+| `search_logs` | Compact rows filtered by workload, text, severity and time, with continuation arguments |
+| `query_metrics` | A named metric aggregated into time buckets, optionally grouped by up to three attribute keys |
+| `oneuptime_whoami` | The OneUptime project identified by the calling API key |
+| `oneuptime_help` | Tools and examples for the selected profile |
+| `oneuptime_list_resources` | Discovery for the selected profile |
+
+Time filters accept `since: "30m"`, `"2h"`, `"7d"` or an ISO timestamp with a
+timezone. `until` defaults to now; the default lookback is one hour and the
+maximum window is seven days. Release-marker lookup defaults to 24 hours.
+`tts`, `ingress` and `normalizer` resolve known service aliases. Optional
+organization and application-project filters require those structured attributes
+in the selected telemetry; log text alone is not an indexed identity.
+
+**Requests and traces.** Search resolves the organization's bearing spans first,
+then expands their traces so untagged children and parents remain visible. HTTP
+requests own their downstream work; WebSocket `tts.turn` generations retain their
+own identity separately from the connection. A request spanning multiple services
+can match a service/version filter on a child span; its summary describes the
+owning request. Organization-filtered results exclude groups bearing conflicting
+organization IDs. These are observed telemetry records, not billing totals.
+
+Request pages default to 20 rows (maximum 100), with `skip` up to 1000. Each scan
+reads at most 2000 candidate spans, expands at most 100 traces and reads at most
+5000 expanded spans. Follow returned `next.arguments` to page the observed
+matches with a fixed time window; if `coverage.scanTruncated` is true, narrow the
+window. Pagination does not extend the scan. `get_trace` reads at most 2000 spans
+and 200 correlated logs inside its requested window. Missing parents, cycles,
+truncation, sampling, retention and pending ingestion are coverage limits; no
+missing parent does not prove a complete trace. Linked connection traces remain
+separate.
+
+**Service statistics.** Counts and p95 aggregate the entire filtered window,
+using `SPAN_KIND_SERVER` as the denominator and span error status for errors.
+They count server operations, not unique customer requests or WebSocket
+generations. Error groups are capped at 200 and example traces at 10; these caps
+do not turn the examples into statistical estimates. `no_errors_observed` is not
+a guarantee of availability or instrumentation coverage.
+
+**Release comparison.** Require `service`, `environment` and `cluster`.
+`windowMinutes` defaults to 30 and accepts 5–360. The lookup uses completed
+speech-stack deployment markers and deduplicates `deployment.event_id`; marker
+history is capped at 1000 rows and truncation returns `insufficient_data`. Both
+windows must have matured, avoid another deployment, and contain at least 30
+server operations with complete aggregates. Before includes all observed
+versions; after selects the deployed version. A completion marker can follow the
+start of traffic shifting or a bake period. Differences are time-correlated
+evidence, not proof the deployment caused a regression. Missing markers require
+producer activation, not an assumption that no deployments occurred.
+
+**Logs and metrics.** Log pages default to 20, maximum 100, with `skip` up to
+100000; use `next.arguments` to preserve the time window. Bodies are capped at
+2000 characters with `bodyTruncated`. Stored severity can reflect stderr
+fallback. Metrics retain native units and support Count/Avg/Sum/Min/Max and
+P50/P90/P95/P99 across minute through day buckets or the total window; aggregate
+output is capped at 200 rows with explicit truncation. `Count` counts telemetry
+points, missing data is not zero, and cumulative counters need rate-aware
+interpretation.
+
+### Advanced profile
+
+Set `MCP_TOOL_PROFILE=advanced` to include the investigation tools plus the
+generated database CRUD tools, telemetry `list_`/`count_` tools, public status-page
+tools and incident/alert acknowledgement, resolution and note workflows. Inspect
+`oneuptime_help` or `/mcp/tools` for the exact current registry; model additions
+can change its size. `MCP_READ_ONLY=true` removes mutations and
+`MCP_ALLOW_DESTRUCTIVE=false` removes destructive tools. These are server-side
+filters; every remaining call still uses the caller's API-key permissions.
+
+Generated CRUD resources include incidents, alerts, monitors, their state and
+severity records, teams and status pages. Telemetry includes spans, logs, metrics,
+exception instances, monitor logs and change events. Advanced mutation workflows
+include `acknowledge_incident`, `resolve_incident`, `acknowledge_alert`,
+`resolve_alert`, `add_incident_note` and `add_alert_note`; public notes can appear
+on status pages.
+
+#### Generated catalog (advanced profile)
 
 Each of these 27 models gets six tools: `create_`, `get_`, `list_`, `update_`, `delete_`, `count_` (e.g. `create_incident`, `get_incident`, `list_incidents`, `update_incident`, `delete_incident`, `count_incidents`):
 
 Incident, Alert, Incident Alert, Monitor, Status Page, Scheduled Maintenance Event, Team, Monitor Status, On-Call Policy, Incident State, Incident Severity, Alert State, Alert Severity, Incident State Timeline, Alert State Timeline, Incident Public Note, Incident Internal Note, Alert Internal Note, Status Page Announcement, Scheduled Maintenance State, Scheduled Maintenance State Timeline, Label, Monitor Status Event, Security Case, Security Case Note, Security Detection, Security Playbook.
 
-### Telemetry resources — read-only
-
 Log, Metric, Span, Exception Instance, Monitor Log, Security Event, Change Event, Kubernetes Cost Allocation, and Threat Intel Indicator get `list_` and `count_` tools only (e.g. `list_logs`, `count_spans`, `list_exception_instances`). There are no create tools for telemetry — ingestion happens via OpenTelemetry.
-
-### Workflow tools
 
 Purpose-built shortcuts for incident/alert response (`packages/App/FeatureSet/MCP/Tools/WorkflowTools.ts`):
 
@@ -145,8 +234,6 @@ Purpose-built shortcuts for incident/alert response (`packages/App/FeatureSet/MC
 - `get_data_table_freshness` — whether a table Data Observability watches is fresh: fresh or late by its own rhythm, when it last changed, its open alerts, and its writers' latest runs (read-only)
 - `get_data_table_lineage` — what a table Data Observability watches is built from and what is built from it, up to five steps each way (`depth`, three by default): the tables that are late, dropped, have open alerts or whose pipeline failed first, nearest first, then the rest, the pipelines that load it from outside and the BI dashboards built on it (read-only)
 - `oneuptime_whoami` — returns the project (ID and name) the credential belongs to; for an OAuth sign-in, also who is signed in, through which client, and whether the connection is read-only
-
-### Helper and public tools
 
 - `oneuptime_help`, `oneuptime_list_resources`
 - `oneuptime_describe_resource` — one resource's fields: what each means, the filter operators its type takes, and whether it can be sorted or must be selected. Accepts the resource's name or any of its tool names (`Incident`, `list_incidents`).
@@ -208,12 +295,17 @@ Values are `"ASC"` or `"DESC"`. Each telemetry tool names the time column to fil
 
 ### Pagination
 
-`limit` defaults to 10 (max 100); `skip` offsets into the result set. List responses return the full requested page with honest pagination metadata:
+For advanced generated list tools, `limit` defaults to 10 (max 100) and `skip`
+offsets into the result set. The adapter passes pagination in the REST query
+string. Analytics list counts are lower bounds: `totalCount` is `null`,
+`countLowerBound` carries the observed lower bound and `hasMore` carries the API's lookahead result.
+Use a corresponding `count_*` call when an exact total is required. For example:
 
 ```json
 {
   "returnedCount": 10,
-  "totalCount": 42,
+  "totalCount": null,
+  "countLowerBound": 11,
   "skip": 0,
   "limit": 10,
   "hasMore": true,
@@ -221,9 +313,26 @@ Values are `"ASC"` or `"DESC"`. Each telemetry tool names the time column to fil
 }
 ```
 
-## Example workflow
+## Example investigation
 
-A typical incident-response loop an agent can run:
+Call `search_requests` with:
+
+```json
+{"organization":"13","since":"2h","status":"error","limit":20}
+```
+
+Then call `get_trace` with a returned `traceId` and the exact `since`/`until`
+from the search response's scope. A service overview uses:
+
+```json
+{"service":"tts","environment":"production","cluster":"kugel-eu-prod","since":"30m"}
+```
+
+Pass that object to `investigate_service`. To compare the latest matching
+verified release, call `compare_release` with the same service/environment/cluster
+and `windowMinutes: 30`; omit `since` to use the 24-hour marker lookup.
+
+An incident-response sequence in the advanced profile:
 
 1. `oneuptime_whoami` — confirm which project the credential belongs to.
 2. `list_incidents` with `{"sort": {"createdAt": "DESC"}, "limit": 5}` — find the active incident.
@@ -335,6 +444,12 @@ To publish before the next release, run the script by hand from the repository r
 ## Coding agent plugin
 
 [`CodingAgentPlugin/`](CodingAgentPlugin/README.md) is the plugin OneUptime lists for coding agents in Cursor's Marketplace and the Claude directory. It holds the hosted server's address and four skills: adding OpenTelemetry, setting up monitors and a status page, investigating an incident, and using the CLI in scripts and CI. `npm run build-coding-agent-plugin` builds a folder with the Agent Plugins, Cursor and Claude manifests side by side, taking the listing's words, links and icon from `ChatGPTPlugin/`. Both directories read a plugin from a public Git repository of its own, `OneUptime/oneuptime-agent-plugin`. Each release that changes the plugin publishes it there, through the `publish-coding-agent-plugin` job in `.github/workflows/release.yml`. A maintainer creates the repository and its deploy key once, and submits it to the directories: the package's README lists those steps. `Tests/CodingAgentPlugin.test.ts` runs the build, checks the folder against the Agent Plugins schemas and each directory's rules, and checks every tool and JSON example a skill names against this server.
+
+Organization filters accept the positive numeric application organization ID as a
+string, for example `"organization": "13"`. The MCP queries the stored
+`organization.id` attribute directly; names and public IDs are rejected.
+The KugelAudio monorepo owns the release-event producer and deployment
+configuration under `packages/private/ci/release/` and `infrastructure/oneuptime/`.
 
 ## Development
 
