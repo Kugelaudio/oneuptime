@@ -51,6 +51,9 @@ import {
   LogEntityDisplay,
   LogsResourceEntityMaps,
 } from "../LogsEntityNames";
+import prepareLogBodyForDisplay, {
+  DisplayLogBody,
+} from "../../../../Types/Telemetry/LogBodyDisplay";
 
 type LogDetailTab = "details" | "context";
 
@@ -118,13 +121,6 @@ interface AttributeEntry {
   value: string;
 }
 
-interface PreparedBody {
-  isJson: boolean;
-  pretty: string;
-  compact: string;
-  raw: string;
-}
-
 export interface ContextLog {
   id: string;
   time: string;
@@ -132,38 +128,6 @@ export interface ContextLog {
   body: string;
   primaryEntityId: string;
 }
-
-const prepareBody: (body: string | undefined) => PreparedBody = (
-  body: string | undefined,
-): PreparedBody => {
-  if (!body) {
-    return {
-      isJson: false,
-      pretty: "",
-      compact: "",
-      raw: "",
-    };
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(body);
-    const pretty: string = JSON.stringify(parsed, null, 2);
-    const compact: string = JSON.stringify(parsed);
-    return {
-      isJson: true,
-      pretty,
-      compact,
-      raw: body,
-    };
-  } catch {
-    return {
-      isJson: false,
-      pretty: body,
-      compact: body,
-      raw: body,
-    };
-  }
-};
 
 function parseContextRow(row: JSONObject): ContextLog {
   return {
@@ -287,8 +251,8 @@ const LogDetailsPanel: FunctionComponent<LogDetailsPanelProps> = (
       ? entityDisplay.typeLabel
       : undefined;
 
-  const bodyDetails: PreparedBody = useMemo(() => {
-    return prepareBody(props.log.body?.toString());
+  const bodyDetails: DisplayLogBody = useMemo(() => {
+    return prepareLogBodyForDisplay(props.log.body?.toString());
   }, [props.log.body]);
 
   const attributeEntries: Array<AttributeEntry> = useMemo(() => {
