@@ -35,6 +35,15 @@ export const NO_MATCH_FINGERPRINT: string = "__attribute-scope-no-match__";
 export const MAX_SCOPED_FINGERPRINTS: number = 10_000;
 
 /*
+ * `@fingerprint:<value>` addresses one exception GROUP by its identity —
+ * it is how the span and session-replay panels deep-link to a group. It
+ * has to count as a real column: as an unknown token it resolved as an
+ * `attributes.fingerprint` lookup on the instance rows, matched nothing,
+ * and every deep link landed on an empty list.
+ */
+export const EXCEPTION_FINGERPRINT_SEARCH_FIELD: string = "fingerprint";
+
+/*
  * Search fields the exceptions backend can filter as real columns; any
  * OTHER `@key:value` search token is an instance attribute.
  */
@@ -42,6 +51,7 @@ export const KNOWN_EXCEPTION_SEARCH_FIELDS: Array<string> = [
   "exceptionType",
   "primaryEntityId",
   "environment",
+  EXCEPTION_FINGERPRINT_SEARCH_FIELD,
 ];
 
 /** attributeKey -> selected values (chip order preserved). */
@@ -162,6 +172,45 @@ export function buildExceptionInstanceAttributeQuery(input: {
     time: input.window,
     attributes,
   } as Query<ExceptionInstance>;
+}
+
+/**
+ * The one fingerprint set the list, histogram and facets all narrow to.
+ * Two things can produce it: an explicit `@fingerprint:` token (a group
+ * deep link) and a resolved attribute scope. Null means neither is
+ * active, so nothing narrows. With both active the sets INTERSECT —
+ * honouring only one of them would widen the view past what was asked
+ * for. An attribute scope still resolving counts as "matched nothing"
+ * yet, same as before: an empty array, which the caller turns into the
+ * no-match sentinel rather than a flash of the unfiltered list.
+ */
+export function resolveExceptionFingerprintScope(input: {
+  explicitFingerprints: Array<string>;
+  attributeScopeActive: boolean;
+  resolvedAttributeFingerprints: Array<string> | null;
+}): Array<string> | null {
+  const explicit: Array<string> = input.explicitFingerprints
+    .filter((value: string): boolean => {
+      return typeof value === "string" && value.trim() !== "";
+    })
+    .map((value: string): string => {
+      return value.trim();
+    });
+
+  if (!input.attributeScopeActive) {
+    return explicit.length > 0 ? explicit : null;
+  }
+
+  const resolved: Array<string> = input.resolvedAttributeFingerprints || [];
+
+  if (explicit.length === 0) {
+    return resolved;
+  }
+
+  const allowed: Set<string> = new Set<string>(explicit);
+  return resolved.filter((fingerprint: string): boolean => {
+    return allowed.has(fingerprint);
+  });
 }
 
 /**
