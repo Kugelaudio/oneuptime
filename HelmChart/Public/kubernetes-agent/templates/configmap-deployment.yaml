@@ -377,8 +377,27 @@ data:
             statements:
               - set(severity_text, "INFO") where severity_text == ""
               - set(severity_number, SEVERITY_NUMBER_INFO) where severity_number == 0
-              - set(severity_text, "WARN") where IsMap(body) and body["type"] == "Warning"
-              - set(severity_number, SEVERITY_NUMBER_WARN) where IsMap(body) and body["type"] == "Warning"
+              {{- /* The event's own type lives at body["object"]["type"].
+                     body["type"] is the k8sobjects WATCH VERB -- ADDED, MODIFIED,
+                     DELETED -- so matching it never fires and every Warning Event
+                     kept the INFO default set two lines above. That silently hid
+                     FailedScheduling, Evicted, BackOff and friends from the Error
+                     and Warning pages on every cluster.
+                     The body["object"]["kind"] == "Event" guard keeps resource-spec
+                     PULL records out: their body is the object itself, with kind
+                     Pod/ReplicaSet/Node, and several carry a "type" key inside
+                     status.conditions. */}}
+              - set(severity_text, "WARN") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning"
+              - set(severity_number, SEVERITY_NUMBER_WARN) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning"
+              {{- /* Warning Events are frequent -- one unschedulable pod re-emits
+                     FailedScheduling every few seconds -- so promoting all of them
+                     to ERROR would just rebuild the noise problem. Only reasons
+                     that mean a workload is not running or not serving escalate.
+                     Note OOMKilled is deliberately absent: Kubernetes emits no
+                     Event with that reason (it is a container TERMINATION reason);
+                     the kubelet's OOM event reason is OOMKilling. */}}
+              - set(severity_text, "ERROR") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(Evicted|FailedScheduling|BackOff|Failed|Unhealthy|FailedMount|FailedAttachVolume|FailedCreatePodSandBox|NodeNotReady|OOMKilling)$")
+              - set(severity_number, SEVERITY_NUMBER_ERROR) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(Evicted|FailedScheduling|BackOff|Failed|Unhealthy|FailedMount|FailedAttachVolume|FailedCreatePodSandBox|NodeNotReady|OOMKilling)$")
               - set(severity_text, "WARN") where IsString(body) and IsMatch(body, "\"type\"\\s*:\\s*\"Warning\"")
               - set(severity_number, SEVERITY_NUMBER_WARN) where IsString(body) and IsMatch(body, "\"type\"\\s*:\\s*\"Warning\"")
 
