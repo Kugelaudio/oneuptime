@@ -236,11 +236,12 @@ type BuildExceptionsGroupRouteFunction = (args: {
 
 /**
  * Deep link from an ExceptionInstance's fingerprint to its group on the
- * exceptions list page. The list's search DSL treats unknown `@alias`
- * tokens as backend columns, so `@fingerprint:<value>` compiles to an exact
- * fingerprint filter; `status=all` and the widest relative range keep
- * resolved / long-quiet groups from being filtered out on arrival. The
- * search value is pre-encoded because the exceptions viewer
+ * exceptions list page. `fingerprint` is one of the list's known backend
+ * columns (KNOWN_EXCEPTION_SEARCH_FIELDS), so `@fingerprint:<value>`
+ * compiles to an exact group filter rather than an instance-attribute
+ * lookup that would match nothing. `status=all` and the widest relative
+ * range keep resolved / long-quiet groups from being filtered out on
+ * arrival. The search value is pre-encoded because the exceptions viewer
  * decodeURIComponent()s the param a second time after URLSearchParams (and
  * Route rejects raw spaces/quotes outright).
  */

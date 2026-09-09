@@ -35,6 +35,7 @@ import AnalyticsModelAPI, {
 import ExceptionInstance from "Common/Models/AnalyticsModels/ExceptionInstance";
 import {
   EXCEPTION_ATTRIBUTE_FACET_PREFIX,
+  EXCEPTION_FINGERPRINT_SEARCH_FIELD,
   ExceptionAttributeSelections,
   KNOWN_EXCEPTION_SEARCH_FIELDS,
   NO_MATCH_FINGERPRINT,
@@ -45,6 +46,7 @@ import {
   getExceptionAttributeSelections,
   hasExceptionAttributeSelections,
   isExceptionAttributeFacetKey,
+  resolveExceptionFingerprintScope,
 } from "../../Utils/ExceptionsAttributeScope";
 import InBetween from "Common/Types/BaseDatabase/InBetween";
 import ProjectUtil from "Common/UI/Utils/Project";
@@ -726,6 +728,27 @@ const ExceptionsViewer: FunctionComponent<ExceptionsViewerProps> = (
       ? attributeScope.fingerprints
       : null;
 
+  /*
+   * Exact group identities asked for by `@fingerprint:` tokens — the
+   * grammar the span and session-replay panels deep-link with.
+   */
+  const explicitFingerprints: Array<string> = useMemo(() => {
+    const { fieldFilters } = parseSearch(submittedSearch);
+    return fieldFilters[EXCEPTION_FINGERPRINT_SEARCH_FIELD] || [];
+  }, [submittedSearch, parseSearch]);
+
+  /*
+   * Null when nothing narrows by fingerprint. Otherwise the single set
+   * the list, histogram and facets all share, so their counts agree.
+   */
+  const fingerprintScope: Array<string> | null = useMemo(() => {
+    return resolveExceptionFingerprintScope({
+      explicitFingerprints,
+      attributeScopeActive: Boolean(attributeScopeKey),
+      resolvedAttributeFingerprints: resolvedScopeFingerprints,
+    });
+  }, [explicitFingerprints, attributeScopeKey, resolvedScopeFingerprints]);
+
   const query: Query<TelemetryException> = useMemo(() => {
     const q: Query<TelemetryException> = {};
     const projectId: ObjectID | null = ProjectUtil.getCurrentProjectId();
@@ -811,6 +834,14 @@ const ExceptionsViewer: FunctionComponent<ExceptionsViewerProps> = (
       if (!KNOWN_EXCEPTION_SEARCH_FIELDS.includes(key)) {
         continue;
       }
+      /*
+       * `@fingerprint:` is a real column, but it rides the fingerprint
+       * scope below so it INTERSECTS with an attribute scope instead of
+       * the two overwriting each other on the same query key.
+       */
+      if (key === EXCEPTION_FINGERPRINT_SEARCH_FIELD) {
+        continue;
+      }
       const values: Array<string> = fieldFilters[key]!;
       if (values.length === 1) {
         (q as Record<string, unknown>)[key] = values[0]!;
@@ -834,13 +865,13 @@ const ExceptionsViewer: FunctionComponent<ExceptionsViewerProps> = (
     );
 
     /*
-     * Attribute scope: resolved fingerprints narrow the list; while the
-     * resolution is still in flight the sentinel keeps the list EMPTY —
-     * a flash of unfiltered exceptions under an active chip would be a
-     * lie.
+     * Fingerprint scope: an explicit `@fingerprint:` deep link and/or the
+     * resolved attribute scope. While an attribute resolution is still in
+     * flight the sentinel keeps the list EMPTY — a flash of unfiltered
+     * exceptions under an active chip would be a lie.
      */
-    if (attributeScopeKey) {
-      applyExceptionFingerprintScope(q, resolvedScopeFingerprints || []);
+    if (fingerprintScope) {
+      applyExceptionFingerprintScope(q, fingerprintScope);
     }
 
     return q;
@@ -851,8 +882,7 @@ const ExceptionsViewer: FunctionComponent<ExceptionsViewerProps> = (
     submittedSearch,
     parseSearch,
     timeRange,
-    attributeScopeKey,
-    resolvedScopeFingerprints,
+    fingerprintScope,
   ]);
 
   // Fetch exceptions
@@ -967,15 +997,13 @@ const ExceptionsViewer: FunctionComponent<ExceptionsViewerProps> = (
       payload["messageSearchText"] = freeText;
     }
     /*
-     * Attribute scope: the endpoint has no attribute dimension, but it
-     * accepts `fingerprints` — the resolved scope keeps the histogram
+     * Fingerprint scope: the endpoint has no attribute dimension, but it
+     * accepts `fingerprints` — carrying the scope keeps the histogram
      * aligned with the narrowed list.
      */
-    if (attributeScopeKey) {
+    if (fingerprintScope) {
       payload["fingerprints"] =
-        resolvedScopeFingerprints && resolvedScopeFingerprints.length > 0
-          ? resolvedScopeFingerprints
-          : [NO_MATCH_FINGERPRINT];
+        fingerprintScope.length > 0 ? fingerprintScope : [NO_MATCH_FINGERPRINT];
     }
 
     try {
@@ -998,8 +1026,7 @@ const ExceptionsViewer: FunctionComponent<ExceptionsViewerProps> = (
     submittedSearch,
     parseSearch,
     props.primaryEntityId,
-    attributeScopeKey,
-    resolvedScopeFingerprints,
+    fingerprintScope,
   ]);
 
   useEffect(() => {
@@ -1217,12 +1244,10 @@ const ExceptionsViewer: FunctionComponent<ExceptionsViewerProps> = (
     if (Object.keys(facetSearchTextActive).length > 0) {
       payload["facetSearchText"] = facetSearchTextActive;
     }
-    // Attribute scope narrows facet counts too (see fetchHistogram).
-    if (attributeScopeKey) {
+    // The fingerprint scope narrows facet counts too (see fetchHistogram).
+    if (fingerprintScope) {
       payload["fingerprints"] =
-        resolvedScopeFingerprints && resolvedScopeFingerprints.length > 0
-          ? resolvedScopeFingerprints
-          : [NO_MATCH_FINGERPRINT];
+        fingerprintScope.length > 0 ? fingerprintScope : [NO_MATCH_FINGERPRINT];
     }
 
     try {
@@ -1246,8 +1271,7 @@ const ExceptionsViewer: FunctionComponent<ExceptionsViewerProps> = (
     parseSearch,
     props.primaryEntityId,
     facetSearchText,
-    attributeScopeKey,
-    resolvedScopeFingerprints,
+    fingerprintScope,
   ]);
 
   useEffect(() => {
