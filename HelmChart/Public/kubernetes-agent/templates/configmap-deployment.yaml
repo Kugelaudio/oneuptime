@@ -400,6 +400,41 @@ data:
               - set(severity_number, SEVERITY_NUMBER_ERROR) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(Evicted|FailedScheduling|BackOff|Failed|Unhealthy|FailedMount|FailedAttachVolume|FailedCreatePodSandBox|NodeNotReady|OOMKilling)$")
               - set(severity_text, "WARN") where IsString(body) and IsMatch(body, "\"type\"\\s*:\\s*\"Warning\"")
               - set(severity_number, SEVERITY_NUMBER_WARN) where IsString(body) and IsMatch(body, "\"type\"\\s*:\\s*\"Warning\"")
+              {{- /* Container OOM kills reach this pipeline only as PULL-mode Pod
+                     snapshots. `OOMKilled` is a container TERMINATION reason at
+                     status.containerStatuses[].lastState.terminated.reason, never
+                     an Event reason, so the list above cannot see it. Measured
+                     across all first-party clusters over 7 days: 0 records
+                     containing "OOMKilling" against 3,498 containing "OOMKilled",
+                     and the Events a real OOM did emit were Normal Pulled/Created/
+                     Started -- nothing that escalates.
+
+                     lastState PERSISTS for the life of the Pod object and
+                     k8sobjects re-emits the snapshot every resourceSpecs.interval,
+                     so an unguarded match would re-raise ERROR for a long-dead OOM
+                     on every pull, forever (one 2026-09-07 kill was still being
+                     re-emitted 288 times a day two days later). The freshness
+                     window is what bounds it: escalate only while the kill is
+                     younger than 900s, i.e. for the two or three pulls that follow
+                     it. That window MUST stay larger than resourceSpecs.interval
+                     (default 300s) or no pull lands inside it and the rule becomes
+                     a silent no-op.
+
+                     OTTL cannot iterate a list, so the container index is unrolled.
+                     6 covers the widest containerStatuses seen in 460 live pod
+                     snapshots (5). Sidecars declared as restartable init containers
+                     live in initContainerStatuses and are NOT covered.
+
+                     The `!= nil` guard matters: Len(nil) raises, and error_mode
+                     ignore turns every raise into a collector WARN line that the
+                     DaemonSet then scrapes back in as an Error row. Verified 0
+                     ignored-error lines over pods with no containerStatuses and
+                     pods with no status block at all. */}}
+              {{- range $index := until 6 }}
+              - set(attributes["k8s.container.last_terminated_reason"], "OOMKilled") where IsMap(body) and body["kind"] == "Pod" and body["status"]["containerStatuses"] != nil and Len(body["status"]["containerStatuses"]) > {{ $index }} and body["status"]["containerStatuses"][{{ $index }}]["lastState"]["terminated"]["reason"] == "OOMKilled" and UnixSeconds(Now()) - UnixSeconds(Time(body["status"]["containerStatuses"][{{ $index }}]["lastState"]["terminated"]["finishedAt"], "%Y-%m-%dT%H:%M:%SZ")) < 900
+              {{- end }}
+              - set(severity_text, "ERROR") where attributes["k8s.container.last_terminated_reason"] == "OOMKilled"
+              - set(severity_number, SEVERITY_NUMBER_ERROR) where attributes["k8s.container.last_terminated_reason"] == "OOMKilled"
 
       {{- /* No "logs" signal here, deliberately. `filters.logs.minSeverity` is a
              POD LOG control, and no pod log flows through this collector — the
