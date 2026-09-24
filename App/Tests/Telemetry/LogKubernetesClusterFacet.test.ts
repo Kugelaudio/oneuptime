@@ -19,9 +19,11 @@ import { Statement } from "Common/Server/Utils/AnalyticsDatabase/Statement";
  *
  * Postgres is mocked: the unit under test is the SQL, not the lookup.
  */
-const kubernetesClusterFindBy: jest.Mock<(...args: Array<unknown>) => unknown> =
-  jest.fn();
-const hostFindBy: jest.Mock<(...args: Array<unknown>) => unknown> = jest.fn();
+type FindBy = (...args: Array<unknown>) => Promise<Array<unknown>>;
+type FindByMock = ReturnType<typeof jest.fn<FindBy>>;
+
+const kubernetesClusterFindBy: FindByMock = jest.fn<FindBy>();
+const hostFindBy: FindByMock = jest.fn<FindBy>();
 
 jest.mock("Common/Server/Services/KubernetesClusterService", () => {
   return { __esModule: true, default: { findBy: kubernetesClusterFindBy } };
