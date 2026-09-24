@@ -393,6 +393,16 @@ export class LogAggregationService {
    */
   private static readonly RESOURCE_FACET_KEYS: Map<string, ServiceType> =
     getResourceFacetServiceTypeMap();
+  /*
+   * Kugelaudio fork (#21): resource facets whose Postgres id ingest also
+   * stamps into a row attribute (Telemetry.ts, oneuptime.kubernetes.cluster.id),
+   * so rows primary-keyed on a Service still count toward the resource. Pod
+   * logs, OTLP logs and the kubernetes-agent k8sobjects rows are all
+   * Service-primary, so counting cluster-primary rows alone showed 0 for every
+   * cluster. Filtering a selected cluster goes through entityKeys upstream.
+   */
+  private static readonly RESOURCE_ID_ATTRIBUTE_KEYS: Map<string, string> =
+    new Map([["kubernetesClusterId", "oneuptime.kubernetes.cluster.id"]]);
   private static readonly ATTRIBUTE_KEY_PATTERN: RegExp = /^[a-zA-Z0-9._:/-]+$/;
   private static readonly MAX_FACET_KEY_LENGTH: number = 256;
   /*
@@ -589,9 +599,26 @@ export class LogAggregationService {
       isResourceFacet ||
       LogAggregationService.isTopLevelColumn(request.facetKey);
 
+    const idAttributeKey: string | undefined =
+      LogAggregationService.RESOURCE_ID_ATTRIBUTE_KEYS.get(request.facetKey);
+
     const statement: Statement = new Statement();
 
-    if (isResourceFacet) {
+    if (isResourceFacet && idAttributeKey) {
+      /*
+       * if() yields one value per row, so a cluster-primary row that is also
+       * stamped is counted once, under its primary id.
+       */
+      statement.append(
+        SQL`SELECT if(primaryEntityType = ${{
+          type: TableColumnType.Text,
+          value: resourceServiceType as string,
+        }}, toString(primaryEntityId), attributes[${{
+          type: TableColumnType.Text,
+          value: idAttributeKey,
+        }}]) AS val, count() AS cnt FROM ${LogAggregationService.TABLE_NAME}`,
+      );
+    } else if (isResourceFacet) {
       /*
        * Virtual facet — group primaryEntityId values whose row carries the
        * matching ServiceType discriminator (Host / DockerHost /
@@ -627,7 +654,18 @@ export class LogAggregationService {
       }}`,
     );
 
-    if (isResourceFacet) {
+    if (isResourceFacet && idAttributeKey) {
+      // Map subscript returns '' for a row without the key.
+      statement.append(
+        SQL` AND (primaryEntityType = ${{
+          type: TableColumnType.Text,
+          value: resourceServiceType as string,
+        }} OR attributes[${{
+          type: TableColumnType.Text,
+          value: idAttributeKey,
+        }}] != '')`,
+      );
+    } else if (isResourceFacet) {
       statement.append(
         SQL` AND primaryEntityType = ${{
           type: TableColumnType.Text,
