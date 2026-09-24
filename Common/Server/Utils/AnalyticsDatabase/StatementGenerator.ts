@@ -91,11 +91,16 @@ export interface EntityScopeQueryValue {
  * what made a Kubernetes cluster filter return nothing for
  * collector-ingested logs.
  *
- * The three branches OR inside one scope; scopes AND with each other, so
- * two different facets intersect.
+ * `idAttributeKey` names an attribute ingest stamps with the resource's
+ * Postgres id (`oneuptime.kubernetes.cluster.id`), matched against the same
+ * `entityIds`: rows primary-keyed on a Service carry their cluster there.
+ *
+ * The branches OR inside one scope; scopes AND with each other, so two
+ * different facets intersect.
  */
 export interface ResourceEntityScopeQueryValue {
   entityIds?: Array<string> | undefined;
+  idAttributeKey?: string | undefined;
   entityKeys?: Array<string> | undefined;
   attributeKey?: string | undefined;
   attributeValues?: Array<string> | undefined;
@@ -656,8 +661,8 @@ export default class StatementGenerator<TBaseModel extends AnalyticsBaseModel> {
        * "resourceEntityScopes" is a synthetic query key (not a column): an
        * array of already-resolved resource-facet selections. Each element
        * compiles to
-       *   (primaryEntityId IN (...) OR hasAny(entityKeys, [...]) OR
-       *    attributes['resource.x'] IN (...))
+       *   (primaryEntityId IN (...) OR attributes['<id key>'] IN (...) OR
+       *    hasAny(entityKeys, [...]) OR attributes['resource.x'] IN (...))
        * and the elements AND with each other.
        *
        * The OR is what makes one facet work across both ingestion shapes:
@@ -714,6 +719,29 @@ export default class StatementGenerator<TBaseModel extends AnalyticsBaseModel> {
               SQL`${columnRef(primaryEntityIdColumn.key)} IN ${{
                 value: new Includes(entityIds),
                 type: primaryEntityIdColumn.type,
+              }}`,
+            );
+          }
+
+          /*
+           * Same ids, read from the attribute ingest stamps them under. Kept
+           * beside the primaryEntityId branch so the list agrees with the
+           * facet count and the aggregation filters (appendResourceScopeFilters).
+           */
+          if (
+            entityIds.length > 0 &&
+            typeof scope.idAttributeKey === "string" &&
+            scope.idAttributeKey.length > 0 &&
+            scopeAttributesColumn &&
+            scopeAttributesColumn.type === TableColumnType.MapStringString
+          ) {
+            branches.push(
+              SQL`${columnRef(scopeAttributesColumn.key)}[${{
+                value: scope.idAttributeKey,
+                type: TableColumnType.Text,
+              }}] IN ${{
+                value: new Includes(entityIds),
+                type: TableColumnType.Text,
               }}`,
             );
           }

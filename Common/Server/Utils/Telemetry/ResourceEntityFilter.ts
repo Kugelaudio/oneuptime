@@ -25,14 +25,19 @@ import logger from "../Logger";
 import CaptureSpan from "./CaptureSpan";
 
 /**
- * One resource facet's selection, compiled into the three ways a signal row
- * can prove membership of that resource. The three are OR-ed together; a
+ * One resource facet's selection, compiled into the ways a signal row can
+ * prove membership of that resource. The branches are OR-ed together; a
  * row matching any of them belongs to the selected resource.
  *
  *  - `entityIds`   -> `primaryEntityId IN (...)`. Agent-ingested telemetry
  *                     has the resource as its primary entity, so its id is
  *                     literally in the column. Also the only thing that
  *                     matches rows written before `entityKeys` existed.
+ *  - `idAttributeKey` -> `attributes['<key>'] IN (entityIds)`. Ingest stamps
+ *                     some resources' Postgres id on every row it resolves
+ *                     them for (`oneuptime.kubernetes.cluster.id`), whatever
+ *                     the row's primary entity. Needs no Postgres lookup, so
+ *                     it survives a failed identifier resolution.
  *  - `entityKeys`  -> `hasAny(entityKeys, [...])`. The general membership
  *                     read: OTLP telemetry primary-keyed on its Service
  *                     still carries the host / cluster key here.
@@ -45,8 +50,41 @@ import CaptureSpan from "./CaptureSpan";
 export interface ResourceEntityScope {
   entityIds: Array<string>;
   entityKeys: Array<string>;
+  idAttributeKey?: string | undefined;
   attributeKey?: string | undefined;
   attributeValues?: Array<string> | undefined;
+}
+
+/*
+ * Attribute ingest stamps with the KubernetesCluster's Postgres id on every
+ * log / span / metric row it resolves a cluster for
+ * (TelemetryUtil.getAttributesForKubernetesClusterIdAndName). Pod logs, OTLP
+ * logs and the kubernetes-agent k8sobjects rows are primary-keyed on a
+ * Service, so this attribute is the only place their cluster id lives. The
+ * log facet count (LogAggregationService) and the filter branch below read
+ * the same key so the count and the filtered rows agree.
+ */
+export const KUBERNETES_CLUSTER_ID_ATTRIBUTE_KEY: string =
+  "oneuptime.kubernetes.cluster.id";
+
+/*
+ * Resource facets whose Postgres id is stamped into a row attribute. Only the
+ * Kubernetes cluster for now: the host / docker host / podman host facets
+ * keep their existing branches unchanged.
+ */
+const ID_ATTRIBUTE_KEYS: Record<string, string> = {
+  kubernetesClusterId: KUBERNETES_CLUSTER_ID_ATTRIBUTE_KEY,
+};
+
+function newScope(facetKey: string, ids: Array<string>): ResourceEntityScope {
+  const scope: ResourceEntityScope = { entityIds: ids, entityKeys: [] };
+  const idAttributeKey: string | undefined = ID_ATTRIBUTE_KEYS[facetKey];
+
+  if (idAttributeKey) {
+    scope.idAttributeKey = idAttributeKey;
+  }
+
+  return scope;
 }
 
 interface ResourceFacetDefinition {
@@ -204,6 +242,18 @@ export function appendResourceScopeFilters(
           value: new Includes(entityIds),
         }})`,
       );
+
+      if (scope.idAttributeKey) {
+        branches.push(
+          SQL`attributes[${{
+            type: TableColumnType.Text,
+            value: scope.idAttributeKey,
+          }}] IN (${{
+            type: TableColumnType.Text,
+            value: new Includes(entityIds),
+          }})`,
+        );
+      }
     }
 
     const entityKeys: Array<string> = (scope.entityKeys || []).filter(
@@ -362,7 +412,7 @@ export default class ResourceEntityFilter {
     if (!data.projectId) {
       query[ResourceEntityFilter.QUERY_SCOPE_KEY] = Object.keys(selections).map(
         (facetKey: string): ResourceEntityScope => {
-          return { entityIds: selections[facetKey] || [], entityKeys: [] };
+          return newScope(facetKey, selections[facetKey] || []);
         },
       );
       return;
@@ -384,10 +434,7 @@ export default class ResourceEntityFilter {
     facetKey: string;
     ids: Array<string>;
   }): Promise<ResourceEntityScope> {
-    const scope: ResourceEntityScope = {
-      entityIds: data.ids,
-      entityKeys: [],
-    };
+    const scope: ResourceEntityScope = newScope(data.facetKey, data.ids);
 
     const definition: ResourceFacetDefinition | undefined =
       FACET_DEFINITIONS[data.facetKey];

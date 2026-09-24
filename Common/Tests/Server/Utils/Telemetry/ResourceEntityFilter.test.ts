@@ -313,7 +313,13 @@ describe("ResourceEntityFilter", () => {
         "resourceEntityScopes"
       ] as Array<ResourceEntityScope>;
 
-      expect(scopes).toEqual([{ entityIds: [CLUSTER_ID], entityKeys: [] }]);
+      expect(scopes).toEqual([
+        {
+          entityIds: [CLUSTER_ID],
+          entityKeys: [],
+          idAttributeKey: "oneuptime.kubernetes.cluster.id",
+        },
+      ]);
       expect(kubernetesClusterFindBy).not.toHaveBeenCalled();
     });
 

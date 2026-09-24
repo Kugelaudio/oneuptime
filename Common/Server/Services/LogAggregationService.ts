@@ -12,6 +12,7 @@ import { DbJSONResponse, Results } from "./AnalyticsDatabaseService";
 import ServiceType from "../../Types/Telemetry/ServiceType";
 import {
   appendResourceScopeFilters,
+  KUBERNETES_CLUSTER_ID_ATTRIBUTE_KEY,
   ResourceEntityScope,
 } from "../Utils/Telemetry/ResourceEntityFilter";
 import {
@@ -277,6 +278,14 @@ export class LogAggregationService {
       ["cloudResourceId", ServiceType.CloudResource],
       ["rumApplicationId", ServiceType.RealUserMonitor],
     ]);
+  /*
+   * Resource facets whose id ingest also stamps into a row attribute, so
+   * rows primary-keyed on a Service still count toward the resource. The
+   * key is shared with ResourceEntityFilter so the facet count and the
+   * filter a selected value applies read the same attribute.
+   */
+  private static readonly RESOURCE_ID_ATTRIBUTE_KEYS: Map<string, string> =
+    new Map([["kubernetesClusterId", KUBERNETES_CLUSTER_ID_ATTRIBUTE_KEY]]);
   private static readonly ATTRIBUTE_KEY_PATTERN: RegExp = /^[a-zA-Z0-9._:/-]+$/;
   private static readonly MAX_FACET_KEY_LENGTH: number = 256;
   /*
@@ -431,13 +440,37 @@ export class LogAggregationService {
       isResourceFacet ||
       LogAggregationService.isTopLevelColumn(request.facetKey);
 
+    /*
+     * Attribute ingest stamps with this resource's Postgres id on rows that
+     * are primary-keyed on something else (only the Kubernetes cluster).
+     */
+    const idAttributeKey: string | undefined =
+      LogAggregationService.RESOURCE_ID_ATTRIBUTE_KEYS.get(request.facetKey);
+
     const statement: Statement = new Statement();
 
-    if (isResourceFacet) {
+    if (isResourceFacet && idAttributeKey) {
+      /*
+       * Pod logs, OTLP logs and the kubernetes-agent k8sobjects rows are
+       * primary-keyed on a Service and carry their cluster only as the
+       * stamped id attribute, so counting cluster-primary rows alone showed
+       * 0 for every cluster. if() yields exactly one value per row, so a
+       * cluster-primary row that is also stamped is counted once, under its
+       * primary id (the pre-existing semantics).
+       */
+      statement.append(
+        SQL`SELECT if(primaryEntityType = ${{
+          type: TableColumnType.Text,
+          value: resourceServiceType as string,
+        }}, toString(primaryEntityId), attributes[${{
+          type: TableColumnType.Text,
+          value: idAttributeKey,
+        }}]) AS val, count() AS cnt FROM ${LogAggregationService.TABLE_NAME}`,
+      );
+    } else if (isResourceFacet) {
       /*
        * Virtual facet — group primaryEntityId values whose row carries the
-       * matching ServiceType discriminator (Host / DockerHost /
-       * KubernetesCluster).
+       * matching ServiceType discriminator (Host / DockerHost / ...).
        */
       statement.append(
         SQL`SELECT toString(primaryEntityId) AS val, count() AS cnt FROM ${LogAggregationService.TABLE_NAME}`,
@@ -469,7 +502,22 @@ export class LogAggregationService {
       }}`,
     );
 
-    if (isResourceFacet) {
+    if (isResourceFacet && idAttributeKey) {
+      /*
+       * Map subscript returns '' for a row without the key, so `!= ''` is
+       * "stamped". No skip index covers attribute values; this reads the
+       * attributes column over the window like any attribute facet does.
+       */
+      statement.append(
+        SQL` AND (primaryEntityType = ${{
+          type: TableColumnType.Text,
+          value: resourceServiceType as string,
+        }} OR attributes[${{
+          type: TableColumnType.Text,
+          value: idAttributeKey,
+        }}] != '')`,
+      );
+    } else if (isResourceFacet) {
       statement.append(
         SQL` AND primaryEntityType = ${{
           type: TableColumnType.Text,
