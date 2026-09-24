@@ -564,6 +564,19 @@ data:
               - set(body["spec"]["tls"]["key"], "REDACTED") where IsMap(body) and body["kind"] == "Route" and body["spec"]["tls"]["key"] != nil
       {{- end }}
 
+      # Resource-spec pulls and event watches carry the full object, including
+      # metadata.managedFields: the API server's per-field ownership ledger,
+      # often half the record, which nothing downstream reads (the dashboard's
+      # YAML tab strips it before rendering). Drop it before export. Pull
+      # records are the object itself; watch records wrap it in body["object"].
+      transform/k8sobjects_trim:
+        error_mode: ignore
+        log_statements:
+          - context: log
+            statements:
+              - delete_key(body["metadata"], "managedFields") where IsMap(body) and IsMap(body["metadata"])
+              - delete_key(body["object"]["metadata"], "managedFields") where IsMap(body) and IsMap(body["object"]) and IsMap(body["object"]["metadata"])
+
       # The k8sobjects receiver emits LogRecords without a severity, so
       # Kubernetes events and resource snapshots arrive at OneUptime with
       # severity_number=0 and render as "Unspecified" on the Logs page.
@@ -984,6 +997,7 @@ data:
             {{- if eq (include "kubernetes-agent.openshift" .) "true" }}
             - resourcedetection/openshift
             {{- end }}
+            - transform/k8sobjects_trim
             - transform/severity
             # Intentionally NOT filtered by filters.logs.minSeverity — see the
             # note on $signals above. Kubernetes events are a low-volume,
