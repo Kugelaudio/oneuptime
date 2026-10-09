@@ -509,7 +509,7 @@ const DashboardChartComponentElement: FunctionComponent<ComponentProps> = (
    */
   const { lines: eventReferenceLines }: EventTimeReferenceLines =
     useEventTimeReferenceLines({
-      enabled: true,
+      enabled: !props.component.arguments.hideEventMarkers,
       window: effectiveStartAndEndDate,
       queryConfigs: queryConfigs,
       refreshTick: props.refreshTick,
