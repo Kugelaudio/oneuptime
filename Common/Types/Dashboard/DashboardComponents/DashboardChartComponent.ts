@@ -15,5 +15,11 @@ export default interface DashboardChartComponent extends BaseComponent {
     chartTitle?: string | undefined;
     chartDescription?: string | undefined;
     chartType?: DashboardChartType | undefined;
+    /*
+     * Deploy, incident and alert markers are project-wide, not scoped to the
+     * chart's query, so a dashboard of per-cluster charts repeats every
+     * cluster's deploys on each one. Unset means shown.
+     */
+    hideEventMarkers?: boolean | undefined;
   };
 }
