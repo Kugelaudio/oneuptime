@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import Route from "Common/Types/API/Route";
 import Navigation from "Common/UI/Utils/Navigation";
 
@@ -397,7 +398,18 @@ const DashboardResourceHoneycomb: FunctionComponent<
           })}
         </div>
       )}
-      {tooltipState && <HoneycombTooltip state={tooltipState} />}
+      {/*
+       * Portal to <body>: the dashboard card is transformed (translate and
+       * scale) and overflow-hidden, which makes it the containing block of
+       * any position: fixed descendant. Rendered in place, this viewport-
+       * positioned tooltip lands offset by the card's own position and is
+       * clipped, so most tiles showed nothing on hover.
+       */}
+      {tooltipState &&
+        createPortal(
+          <HoneycombTooltip state={tooltipState} />,
+          document.body,
+        )}
     </div>
   );
 };
