@@ -63,7 +63,7 @@ import TelemetryContext from "../Utils/Telemetry/TelemetryContext";
 import PositiveNumber from "../../Types/PositiveNumber";
 import Text from "../../Types/Text";
 import Typeof from "../../Types/Typeof";
-import API from "../../Utils/API";
+import API, { RequestOptions } from "../../Utils/API";
 import Slug from "../../Utils/Slug";
 import {
   DataSource,
@@ -902,6 +902,7 @@ class DatabaseService<TBaseModel extends BaseModel> extends BaseService {
         headers: {
           ...ClusterKeyAuthorization.getClusterKeyHeaders(),
         },
+        options: DatabaseService.WORKFLOW_TRIGGER_REQUEST_OPTIONS,
       }).catch((error: Error) => {
         logger.error(error, {
           projectId: projectId?.toString(),
@@ -909,6 +910,23 @@ class DatabaseService<TBaseModel extends BaseModel> extends BaseService {
       });
     }
   }
+
+  /*
+   * The trigger is the only record that a workflow should run: nothing
+   * re-sends it, so a request lost while the worker restarts is a workflow
+   * that never runs. On 2026-10-06 the workers restarted after a Redis stall
+   * and 8 of 26 alert on-create triggers were dropped this way, including
+   * five high-severity pages. Retry transport failures and 5xx for up to five
+   * minutes, which covers a worker rollout; a 4xx is the request itself being
+   * wrong and fails at once.
+   */
+  public static readonly WORKFLOW_TRIGGER_REQUEST_OPTIONS: RequestOptions = {
+    retries: 8,
+    exponentialBackoff: true,
+    maxBackoffInMs: 30000,
+    totalTimeoutInMs: 300000,
+    retryOnlyOnRetryableErrors: true,
+  };
 
   /**
    * Derive the telemetry attribute key for this model's primary id, e.g.
