@@ -413,6 +413,25 @@ data:
               - set(severity_number, SEVERITY_NUMBER_ERROR) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(Evicted|FailedScheduling|BackOff|Failed|Unhealthy|FailedMount|FailedAttachVolume|FailedCreatePodSandBox|NodeNotReady|OOMKilling)$")
               - set(severity_text, "WARN") where IsString(body) and IsMatch(body, "\"type\"\\s*:\\s*\"Warning\"")
               - set(severity_number, SEVERITY_NUMBER_WARN) where IsString(body) and IsMatch(body, "\"type\"\\s*:\\s*\"Warning\"")
+              {{- /* A startup probe is expected to fail until the app has booted;
+                     that is what distinguishes it from liveness and readiness.
+                     Its misses during a normal boot were stored ERROR (the
+                     largest Unhealthy note on our staging cluster, 2026-10-26).
+                     WARN, not INFO, so they stay countable. A startup probe that
+                     never passes still reaches ERROR: the kubelet kills and
+                     restarts the container, and the restarts raise BackOff.
+                     Readiness and liveness failures keep ERROR. */}}
+              - set(severity_text, "WARN") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["reason"] == "Unhealthy" and IsString(body["object"]["note"]) and IsMatch(body["object"]["note"], "^Startup probe failed: ")
+              - set(severity_number, SEVERITY_NUMBER_WARN) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["reason"] == "Unhealthy" and IsString(body["object"]["note"]) and IsMatch(body["object"]["note"], "^Startup probe failed: ")
+              {{- /* A DELETED watch record is the API server garbage-collecting
+                     the Event at its TTL (1 h by default), not a new occurrence:
+                     the ADDED and MODIFIED records already carried it at its own
+                     severity. Re-raising it repeated every Warning Event an hour
+                     late, so a pod Ready for an hour still looked like it was
+                     failing (about a quarter of the Event Error rows on
+                     2026-10-26). INFO keeps the record for the event history. */}}
+              - set(severity_text, "INFO") where IsMap(body) and body["type"] == "DELETED" and IsMap(body["object"]) and body["object"]["kind"] == "Event"
+              - set(severity_number, SEVERITY_NUMBER_INFO) where IsMap(body) and body["type"] == "DELETED" and IsMap(body["object"]) and body["object"]["kind"] == "Event"
               {{- /* Container OOM kills reach this pipeline only as PULL-mode Pod
                      snapshots. `OOMKilled` is a container TERMINATION reason at
                      status.containerStatuses[].lastState.terminated.reason, never

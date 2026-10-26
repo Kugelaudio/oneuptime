@@ -104,6 +104,12 @@ rejected at Helm render time.
 - Watch-mode **Events** default to INFO. `body["object"]["type"] == "Warning"`
   becomes WARN, and a Warning whose `body["object"]["reason"]` means the workload
   is not running or not serving becomes ERROR.
+- Two expected conditions are then lowered again. An `Unhealthy` Event whose
+  `note` starts `Startup probe failed: ` is WARN: a startup probe fails by design
+  until the app has booted, and one that never passes still raises ERROR through
+  the restart's `BackOff`. Readiness and liveness failures stay ERROR. A
+  `DELETED` watch record of an Event is INFO: it is the TTL garbage collection
+  of an Event already recorded at its own severity, not a new occurrence.
 - Pull-mode **Pod snapshots** become ERROR when a container was OOM-killed
   *recently*. `OOMKilled` is a container termination reason at
   `status.containerStatuses[].lastState.terminated.reason`, never an Event
