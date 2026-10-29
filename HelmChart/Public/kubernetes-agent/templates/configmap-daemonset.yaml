@@ -352,8 +352,11 @@ data:
           #     `<file>.py:<line>: <Category>Warning: ...`, which carries the
           #     category instead of a level: WARN.
           #   POSTGRES. `<ts> <TZ> [pid] [user@db ]LEVEL:  ...`. The timezone word
-          #     and `[pid]` stop the preamble branch, so Postgres's own LOG,
-          #     WARNING, ERROR and FATAL were all stored as the stream's guess.
+          #     and `[pid]` stop the preamble branch, so Postgres's own WARNING,
+          #     ERROR and FATAL were all stored as the stream's guess. LOG is not
+          #     read as a level: Postgres files real failures there too (`server
+          #     process (PID n) was terminated by signal 9: Killed`, pg_cron's
+          #     `cron job N failed`), so a LOG line takes the content fallback.
           #     STATEMENT is printed only beside an error (log_min_error_statement
           #     defaults to error), so it is ERROR. The agent occasionally hands
           #     over two Postgres lines as one record; when a LATER line is
@@ -371,7 +374,9 @@ data:
           # every progress bar write ordinary output to stderr. So stderr alone
           # never means ERROR. A level-less stderr line is ERROR only when it
           # names an exception class (`ValueError: ...`, the last line of an
-          # uncaught Python traceback) or carries fault vocabulary (`Traceback`,
+          # uncaught Python traceback), is a traceback frame (`File "x.py", line
+          # 3, in f`; vLLM prefixes every frame, so they arrive one per record)
+          # or carries fault vocabulary (`Traceback`,
           # `failed`, `refused`, `timed out`, ...), else INFO. The plural
           # `errors` is deliberately absent: progress counters print `0 errors`. stdout keeps INFO, as before: a stdout
           # access log line containing `/error` is not an error.
@@ -385,11 +390,11 @@ data:
               - output: parse-severity-postgres-joined
                 expr: 'body matches "\\n(?:\\[local\\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)? [A-Z]{2,5} \\[[0-9]+\\] (?:[^ \\n]+@[^ \\n]+ )?(ERROR|FATAL|PANIC):  "'
               - output: parse-severity-postgres
-                expr: 'body matches "^(?:\\[local\\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)? [A-Z]{2,5} \\[[0-9]+\\] (?:[^ \\n]+@[^ \\n]+ )?(DEBUG[1-5]|LOG|INFO|NOTICE|WARNING|ERROR|FATAL|PANIC|STATEMENT):  "'
+                expr: 'body matches "^(?:\\[local\\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)? [A-Z]{2,5} \\[[0-9]+\\] (?:[^ \\n]+@[^ \\n]+ )?(DEBUG[1-5]|INFO|NOTICE|WARNING|ERROR|FATAL|PANIC|STATEMENT):  "'
               - output: parse-severity-from-body
-                expr: 'body matches "(?i)(?:^(?:[^A-Za-z\"\\n]|[A-Za-z][A-Za-z0-9_]*[ \\t]*[.:=,/>|)}\\]-]|(?:Z|UTC|GMT)[ \\t]+|\\([A-Za-z0-9_]+ pid=[0-9]+\\) )*?|(?:^|[\\s,{\\[])\"?(?:log[._]?level|severity_?text|severity|levelname|level|lvl)\"?[ \\t]*[:=][ \\t]*\"?)(TRACE|DEBUG|INFO|NOTICE|WARNING|WARN|EMERGENCY|EMERG|ALERT|CRITICAL|CRIT|ERROR|ERR|FATAL|PANIC)(?:$|[\\s\\]:=,)\"}|>])"'
+                expr: 'body matches "(?i)(?:^(?:[^A-Za-z\"\\n]|[A-Za-z][A-Za-z0-9_]*[ \\t]*[.:=,/>|)}\\]-]|(?:Z|UTC|GMT)[ \\t]+|\\([A-Za-z0-9_]+ pid=[0-9]+\\) )*?|(?:^|[\\s,{\\[])\"?(?:log[._]?level|severity_?text|severity|levelname|level|lvl)\"?[ \\t]*[:=][ \\t]*\"?)(TRACE|DEBUG|INFO|NOTICE|WARNING|WARN|EMERGENCY|EMERG|ALERT|CRITICAL|CRIT|ERROR|ERR|FATAL|DPANIC|PANIC)(?:$|[\\s\\]:=,)\"}|>])"'
               - output: add-fault-severity
-                expr: 'attributes["log.iostream"] == "stderr" and body matches "(?i)(?-i:\\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\\b)|\\b(?:error|exception|traceback|panic|panicked|fatal|fail|fails|failed|failing|failure|abort|aborted|crash|crashed|segfault|segmentation fault|refused|denied|forbidden|unauthorized|timeout|timed out|unreachable|cannot|could not|unable|invalid|corrupt|corrupted|unexpected eof|no such file|not found|out of memory|oom|oomkilled|killed|deadlock|expired|exceeded|unhandled|enoent|eacces|econnrefused|econnreset|etimedout)\\b"'
+                expr: 'attributes["log.iostream"] == "stderr" and body matches "(?i)(?-i:\\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\\b|File \"[^\"\\n]+\", line [0-9]+, in )|\\b(?:error|exception|traceback|panic|panicked|fatal|fail|fails|failed|failing|failure|abort|aborted|crash|crashed|segfault|segmentation fault|refused|denied|forbidden|unauthorized|timeout|timed out|unreachable|cannot|could not|unable|invalid|corrupt|corrupted|unexpected eof|no such file|not found|out of memory|oom|oomkilled|killed|deadlock|expired|exceeded|unhandled|enoent|eacces|econnrefused|econnreset|etimedout)\\b"'
             default: add-fallback-severity
           - type: regex_parser
             id: parse-severity-letter
@@ -408,12 +413,12 @@ data:
             output: severity-parser
           - type: regex_parser
             id: parse-severity-postgres
-            regex: '^(?:\[local\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)? [A-Z]{2,5} \[[0-9]+\] (?:[^ \n]+@[^ \n]+ )?(?P<severity_text>DEBUG[1-5]|LOG|INFO|NOTICE|WARNING|ERROR|FATAL|PANIC|STATEMENT):  '
+            regex: '^(?:\[local\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)? [A-Z]{2,5} \[[0-9]+\] (?:[^ \n]+@[^ \n]+ )?(?P<severity_text>DEBUG[1-5]|INFO|NOTICE|WARNING|ERROR|FATAL|PANIC|STATEMENT):  '
             parse_from: body
             output: severity-parser
           - type: regex_parser
             id: parse-severity-from-body
-            regex: '(?i)(?:^(?:[^A-Za-z"\n]|[A-Za-z][A-Za-z0-9_]*[ \t]*[.:=,/>|)}\]-]|(?:Z|UTC|GMT)[ \t]+|\([A-Za-z0-9_]+ pid=[0-9]+\) )*?|(?:^|[\s,{\[])"?(?:log[._]?level|severity_?text|severity|levelname|level|lvl)"?[ \t]*[:=][ \t]*"?)(?P<severity_text>TRACE|DEBUG|INFO|NOTICE|WARNING|WARN|EMERGENCY|EMERG|ALERT|CRITICAL|CRIT|ERROR|ERR|FATAL|PANIC)(?:$|[\s\]:=,)"}|>])'
+            regex: '(?i)(?:^(?:[^A-Za-z"\n]|[A-Za-z][A-Za-z0-9_]*[ \t]*[.:=,/>|)}\]-]|(?:Z|UTC|GMT)[ \t]+|\([A-Za-z0-9_]+ pid=[0-9]+\) )*?|(?:^|[\s,{\[])"?(?:log[._]?level|severity_?text|severity|levelname|level|lvl)"?[ \t]*[:=][ \t]*"?)(?P<severity_text>TRACE|DEBUG|INFO|NOTICE|WARNING|WARN|EMERGENCY|EMERG|ALERT|CRITICAL|CRIT|ERROR|ERR|FATAL|DPANIC|PANIC)(?:$|[\s\]:=,)"}|>])'
             parse_from: body
             output: severity-parser
           - type: add
@@ -442,13 +447,13 @@ data:
               info:
                 - i
                 - notice
-                - log
               warn:
                 - w
                 - warning
               error:
                 - e
                 - c
+                - dpanic
                 - err
                 - crit
                 - critical
