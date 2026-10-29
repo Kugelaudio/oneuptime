@@ -432,6 +432,20 @@ data:
                        timed out waiting for the condition`, which still escalates. */}}
               - set(severity_text, "ERROR") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and body["type"] != "DELETED" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(Evicted|FailedScheduling|BackOff|Failed|Unhealthy|FailedMount|FailedAttachVolume|FailedCreatePodSandBox|NodeNotReady|OOMKilling)$") and not (body["object"]["reason"] == "Unhealthy" and IsString(body["object"]["note"]) and IsMatch(body["object"]["note"], "^Startup probe failed:")) and not (body["object"]["reason"] == "FailedMount" and IsString(body["object"]["note"]) and IsMatch(body["object"]["note"], "^MountVolume\\.SetUp failed for volume \"[^\"]+\" [:] object \"[^\"]+\"/\"[^\"]+\" not registered$"))
               - set(severity_number, SEVERITY_NUMBER_ERROR) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and body["type"] != "DELETED" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(Evicted|FailedScheduling|BackOff|Failed|Unhealthy|FailedMount|FailedAttachVolume|FailedCreatePodSandBox|NodeNotReady|OOMKilling)$") and not (body["object"]["reason"] == "Unhealthy" and IsString(body["object"]["note"]) and IsMatch(body["object"]["note"], "^Startup probe failed:")) and not (body["object"]["reason"] == "FailedMount" and IsString(body["object"]["note"]) and IsMatch(body["object"]["note"], "^MountVolume\\.SetUp failed for volume \"[^\"]+\" [:] object \"[^\"]+\"/\"[^\"]+\" not registered$"))
+              {{- /* Two kubelet Warnings every node prints while it boots, kept at INFO:
+                     - InvalidDiskCapacity "invalid capacity 0 on image filesystem":
+                       the kubelet's first image-filesystem stats pass runs before the
+                       runtime reports a capacity. Once per node, ~15 s after it
+                       registers (16 nodes, 2026-10-29 22:00-23:00Z). A real disk
+                       problem reports FreeDiskSpaceFailed, ImageGCFailed or
+                       DiskPressure instead.
+                     - NetworkNotReady on a pod: a DaemonSet pod (tolerations
+                       `operator: Exists`) lands on a node before its CNI starts and
+                       waits; it started within 20 s on every new staging node that
+                       hour. A CNI that breaks on a running node takes the node
+                       NotReady, and NodeNotReady still escalates. */}}
+              - set(severity_text, "INFO") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(InvalidDiskCapacity|NetworkNotReady)$")
+              - set(severity_number, SEVERITY_NUMBER_INFO) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(InvalidDiskCapacity|NetworkNotReady)$")
               - set(severity_text, "WARN") where IsString(body) and IsMatch(body, "\"type\"\\s*:\\s*\"Warning\"")
               - set(severity_number, SEVERITY_NUMBER_WARN) where IsString(body) and IsMatch(body, "\"type\"\\s*:\\s*\"Warning\"")
               {{- /* Container OOM kills reach this pipeline only as PULL-mode Pod
