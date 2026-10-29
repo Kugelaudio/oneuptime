@@ -333,50 +333,139 @@ data:
           # json-file driver keeps the newline in the `log` field) and Podman
           # (whose CRI format does not) read the same line the same way.
           #
-          # A line matching neither shape takes the stream fallback below, exactly
-          # as it did before any of this existed. Every keyword in the alternation
-          # MUST also resolve in `severity-parser` below: stanza's built-in preset
-          # knows nothing of notice/crit/critical/panic/alert/emerg/emergency, and
-          # an unmapped keyword leaves the record Unspecified, which is worse than
-          # the stream guess it replaced.
-          # Tests/Ops/ContainerAgentLogSeverity.test.js pins all of it, the corpus
-          # of lines that must NOT match included.
+          # A line matching none of the level shapes below takes the content
+          # fallback at the end of this block. Every keyword the parsers capture
+          # MUST also resolve in `severity-parser`: stanza's built-in preset
+          # knows nothing of notice/crit/critical/panic/alert/emerg/emergency or
+          # of the single letters and Postgres names added here, and an unmapped
+          # keyword leaves the record Unspecified.
+          #
+          # Further level shapes, each its own route because the level sits in a
+          # place the preamble branch cannot reach without also reading prose:
+          #
+          #   LETTER. A one-letter level in a fixed position: klog/glog
+          #     (`W1029 22:00:00.123456 1 file.go:12] ...`, also behind torch's
+          #     `[rank0]:`), NeMo (`[NeMo W 2026-10-29 22:00:00 modelPT:42] ...`)
+          #     and onnxruntime (`<ESC>[0;93m2026-10-29 22:00:00.1 [W:onnxruntime:`).
+          #     D/V debug and verbose, I info, W warn, E and C error, F fatal.
+          #   PYWARN. The Python `warnings` module's own header,
+          #     `<file>.py:<line>: <Category>Warning: ...`, which carries the
+          #     category instead of a level: WARN.
+          #   POSTGRES. `<ts> <TZ> [pid] [user@db ]LEVEL:  ...`. The timezone word
+          #     and `[pid]` stop the preamble branch, so Postgres's own WARNING,
+          #     ERROR and FATAL were all stored as the stream's guess. LOG is not
+          #     read as a level: Postgres files real failures there too (`server
+          #     process (PID n) was terminated by signal 9: Killed`, pg_cron's
+          #     `cron job N failed`), so a LOG line takes the content fallback.
+          #     STATEMENT is printed only beside an error (log_min_error_statement
+          #     defaults to error), so it is ERROR. The agent occasionally hands
+          #     over two Postgres lines as one record; when a LATER line is
+          #     ERROR/FATAL/PANIC that level wins (POSTGRES-JOINED), so a LOG line
+          #     in front can never carry an error off the Error page.
+          #
+          # The preamble branch also crosses the two prefixes that stopped it on
+          # real lines: a timezone word followed by whitespace (zap console's
+          # `2026-10-29T22:00:00Z<TAB>INFO<TAB>`) and vLLM's process prefix
+          # `(EngineCore pid=140) `.
+          #
+          # FALLBACK. A line with no level in any of these shapes says nothing
+          # about its severity, and the stream it was written to does not either:
+          # Go's `log`, Python's `logging` and `warnings`, Node's console.warn and
+          # every progress bar write ordinary output to stderr. So stderr alone
+          # never means ERROR. A level-less stderr line is ERROR only when it
+          # names an exception class (`ValueError: ...`, the last line of an
+          # uncaught Python traceback), is a traceback frame (`File "x.py", line
+          # 3, in f`; vLLM prefixes every frame, so they arrive one per record)
+          # or carries fault vocabulary (`Traceback`,
+          # `failed`, `refused`, `timed out`, ...), else INFO. The plural
+          # `errors` is deliberately absent: progress counters print `0 errors`. stdout keeps INFO, as before: a stdout
+          # access log line containing `/error` is not an error.
           - type: router
             id: severity-router
             routes:
+              - output: parse-severity-letter
+                expr: 'body matches "^(?:\\x1b\\[[0-9;]*m)?(?:\\([A-Za-z0-9_]+ pid=[0-9]+\\) )?(?:\\[rank[0-9]+\\]:|\\[NeMo |[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+ \\[)?([DVIWEFC])(?:[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]+ +[0-9]+ [^ \\n]+:[0-9]+\\] | [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+ |:onnxruntime:)"'
+              - output: add-pywarn-severity
+                expr: 'body matches "^(?:\\([A-Za-z0-9_]+ pid=[0-9]+\\) )?(?:<[^>\\n]+>|[^ \\n]*\\.py):[0-9]+: [A-Z][A-Za-z]*Warning: "'
+              - output: parse-severity-postgres-joined
+                expr: 'body matches "\\n(?:\\[local\\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)? [A-Z]{2,5} \\[[0-9]+\\] (?:[^ \\n]+@[^ \\n]+ )?(ERROR|FATAL|PANIC):  "'
+              - output: parse-severity-postgres
+                expr: 'body matches "^(?:\\[local\\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)? [A-Z]{2,5} \\[[0-9]+\\] (?:[^ \\n]+@[^ \\n]+ )?(DEBUG[1-5]|INFO|NOTICE|WARNING|ERROR|FATAL|PANIC|STATEMENT):  "'
               - output: parse-severity-from-body
-                expr: 'body matches "(?i)(?:^(?:[^A-Za-z\"\\n]|[A-Za-z][A-Za-z0-9_]*[ \\t]*[.:=,/>|)}\\]-])*?|(?:^|[\\s,{\\[])\"?(?:log[._]?level|severity_?text|severity|levelname|level|lvl)\"?[ \\t]*[:=][ \\t]*\"?)(TRACE|DEBUG|INFO|NOTICE|WARNING|WARN|EMERGENCY|EMERG|ALERT|CRITICAL|CRIT|ERROR|ERR|FATAL|PANIC)(?:$|[\\s\\]:=,)\"}|>])"'
+                expr: 'body matches "(?i)(?:^(?:[^A-Za-z\"\\n]|[A-Za-z][A-Za-z0-9_]*[ \\t]*[.:=,/>|)}\\]-]|(?:Z|UTC|GMT)[ \\t]+|\\([A-Za-z0-9_]+ pid=[0-9]+\\) )*?|(?:^|[\\s,{\\[])\"?(?:log[._]?level|severity_?text|severity|levelname|level|lvl)\"?[ \\t]*[:=][ \\t]*\"?)(TRACE|DEBUG|INFO|NOTICE|WARNING|WARN|EMERGENCY|EMERG|ALERT|CRITICAL|CRIT|ERROR|ERR|FATAL|DPANIC|PANIC)(?:$|[\\s\\]:=,)\"}|>])"'
+              - output: add-fault-severity
+                expr: 'attributes["log.iostream"] == "stderr" and body matches "(?i)(?-i:\\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\\b|File \"[^\"\\n]+\", line [0-9]+, in )|\\b(?:error|exception|traceback|panic|panicked|fatal|fail|fails|failed|failing|failure|abort|aborted|crash|crashed|segfault|segmentation fault|refused|denied|forbidden|unauthorized|timeout|timed out|unreachable|cannot|could not|unable|invalid|corrupt|corrupted|unexpected eof|no such file|not found|out of memory|oom|oomkilled|killed|deadlock|expired|exceeded|unhandled|enoent|eacces|econnrefused|econnreset|etimedout)\\b"'
             default: add-fallback-severity
           - type: regex_parser
-            id: parse-severity-from-body
-            regex: '(?i)(?:^(?:[^A-Za-z"\n]|[A-Za-z][A-Za-z0-9_]*[ \t]*[.:=,/>|)}\]-])*?|(?:^|[\s,{\[])"?(?:log[._]?level|severity_?text|severity|levelname|level|lvl)"?[ \t]*[:=][ \t]*"?)(?P<severity_text>TRACE|DEBUG|INFO|NOTICE|WARNING|WARN|EMERGENCY|EMERG|ALERT|CRITICAL|CRIT|ERROR|ERR|FATAL|PANIC)(?:$|[\s\]:=,)"}|>])'
+            id: parse-severity-letter
+            regex: '^(?:\x1b\[[0-9;]*m)?(?:\([A-Za-z0-9_]+ pid=[0-9]+\) )?(?:\[rank[0-9]+\]:|\[NeMo |[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+ \[)?(?P<severity_text>[DVIWEFC])(?:[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+ +[0-9]+ [^ \n]+:[0-9]+\] | [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+ |:onnxruntime:)'
             parse_from: body
+            output: severity-parser
+          - type: add
+            id: add-pywarn-severity
+            field: attributes.severity_text
+            value: WARN
+            output: severity-parser
+          - type: regex_parser
+            id: parse-severity-postgres-joined
+            regex: '\n(?:\[local\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)? [A-Z]{2,5} \[[0-9]+\] (?:[^ \n]+@[^ \n]+ )?(?P<severity_text>ERROR|FATAL|PANIC):  '
+            parse_from: body
+            output: severity-parser
+          - type: regex_parser
+            id: parse-severity-postgres
+            regex: '^(?:\[local\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)? [A-Z]{2,5} \[[0-9]+\] (?:[^ \n]+@[^ \n]+ )?(?P<severity_text>DEBUG[1-5]|INFO|NOTICE|WARNING|ERROR|FATAL|PANIC|STATEMENT):  '
+            parse_from: body
+            output: severity-parser
+          - type: regex_parser
+            id: parse-severity-from-body
+            regex: '(?i)(?:^(?:[^A-Za-z"\n]|[A-Za-z][A-Za-z0-9_]*[ \t]*[.:=,/>|)}\]-]|(?:Z|UTC|GMT)[ \t]+|\([A-Za-z0-9_]+ pid=[0-9]+\) )*?|(?:^|[\s,{\[])"?(?:log[._]?level|severity_?text|severity|levelname|level|lvl)"?[ \t]*[:=][ \t]*"?)(?P<severity_text>TRACE|DEBUG|INFO|NOTICE|WARNING|WARN|EMERGENCY|EMERG|ALERT|CRITICAL|CRIT|ERROR|ERR|FATAL|DPANIC|PANIC)(?:$|[\s\]:=,)"}|>])'
+            parse_from: body
+            output: severity-parser
+          - type: add
+            id: add-fault-severity
+            field: attributes.severity_text
+            value: ERROR
             output: severity-parser
           - type: add
             id: add-fallback-severity
             field: attributes.severity_text
-            value: 'EXPR(attributes["log.iostream"] == "stderr" ? "ERROR" : "INFO")'
+            value: INFO
             output: severity-parser
           - type: severity_parser
             id: severity-parser
             parse_from: attributes.severity_text
             preset: default
             mapping:
+              debug:
+                - d
+                - v
+                - debug1
+                - debug2
+                - debug3
+                - debug4
+                - debug5
+              info:
+                - i
+                - notice
               warn:
+                - w
                 - warning
               error:
+                - e
+                - c
+                - dpanic
                 - err
                 - crit
                 - critical
+                - statement
               # PSR-3 / syslog put alert and emergency above critical, and
               # neither has a built-in mapping; nginx writes it as [emerg].
               fatal:
+                - f
                 - panic
                 - alert
                 - emerg
                 - emergency
-              info:
-                - notice
           - type: remove
             id: remove-severity-attr
             field: attributes.severity_text

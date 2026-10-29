@@ -400,17 +400,38 @@ data:
                      PULL records out: their body is the object itself, with kind
                      Pod/ReplicaSet/Node, and several carry a "type" key inside
                      status.conditions. */}}
-              - set(severity_text, "WARN") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning"
-              - set(severity_number, SEVERITY_NUMBER_WARN) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning"
+              - set(severity_text, "WARN") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and body["type"] != "DELETED"
+              - set(severity_number, SEVERITY_NUMBER_WARN) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and body["type"] != "DELETED"
               {{- /* Warning Events are frequent -- one unschedulable pod re-emits
                      FailedScheduling every few seconds -- so promoting all of them
                      to ERROR would just rebuild the noise problem. Only reasons
                      that mean a workload is not running or not serving escalate.
                      Note OOMKilled is deliberately absent: Kubernetes emits no
                      Event with that reason (it is a container TERMINATION reason);
-                     the kubelet's OOM event reason is OOMKilling. */}}
-              - set(severity_text, "ERROR") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(Evicted|FailedScheduling|BackOff|Failed|Unhealthy|FailedMount|FailedAttachVolume|FailedCreatePodSandBox|NodeNotReady|OOMKilling)$")
-              - set(severity_number, SEVERITY_NUMBER_ERROR) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(Evicted|FailedScheduling|BackOff|Failed|Unhealthy|FailedMount|FailedAttachVolume|FailedCreatePodSandBox|NodeNotReady|OOMKilling)$")
+                     the kubelet's OOM event reason is OOMKilling.
+
+                     body["type"] != "DELETED": the watch reports an Event a second
+                     time when its TTL (1h) expires and the API server deletes it.
+                     That record restates an occurrence already ingested as ADDED or
+                     MODIFIED, so it keeps the INFO default instead of counting the
+                     same failure again an hour later (112 of 710 Event rows on the
+                     Error page, 2026-10-29 22:00-23:00Z).
+
+                     Two notes of escalating reasons stay at the Event's own WARN:
+                     - `Unhealthy` from a STARTUP probe. Failing until the app is up is
+                       that probe's job; a container that never comes up is killed
+                       and restarted, and BackOff (escalated) reports that. Readiness
+                       and liveness failures still escalate.
+                     - `FailedMount ... object "<ns>"/"<name>" not registered`. The
+                       kubelet's ConfigMap/Secret manager has not registered a pod
+                       it is starting yet; it retries and the container starts. On
+                       staging every new DaemonSet pod on a fresh Karpenter node
+                       logs it while the node is still NetworkNotReady, then starts
+                       within 20 s (15 pods, 2026-10-29 22:00-23:00Z). A mount that
+                       stays broken ends in `Unable to attach or mount volumes: ...
+                       timed out waiting for the condition`, which still escalates. */}}
+              - set(severity_text, "ERROR") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and body["type"] != "DELETED" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(Evicted|FailedScheduling|BackOff|Failed|Unhealthy|FailedMount|FailedAttachVolume|FailedCreatePodSandBox|NodeNotReady|OOMKilling)$") and not (body["object"]["reason"] == "Unhealthy" and IsString(body["object"]["note"]) and IsMatch(body["object"]["note"], "^Startup probe failed:")) and not (body["object"]["reason"] == "FailedMount" and IsString(body["object"]["note"]) and IsMatch(body["object"]["note"], "^MountVolume\\.SetUp failed for volume \"[^\"]+\" [:] object \"[^\"]+\"/\"[^\"]+\" not registered$"))
+              - set(severity_number, SEVERITY_NUMBER_ERROR) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and body["type"] != "DELETED" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(Evicted|FailedScheduling|BackOff|Failed|Unhealthy|FailedMount|FailedAttachVolume|FailedCreatePodSandBox|NodeNotReady|OOMKilling)$") and not (body["object"]["reason"] == "Unhealthy" and IsString(body["object"]["note"]) and IsMatch(body["object"]["note"], "^Startup probe failed:")) and not (body["object"]["reason"] == "FailedMount" and IsString(body["object"]["note"]) and IsMatch(body["object"]["note"], "^MountVolume\\.SetUp failed for volume \"[^\"]+\" [:] object \"[^\"]+\"/\"[^\"]+\" not registered$"))
               - set(severity_text, "WARN") where IsString(body) and IsMatch(body, "\"type\"\\s*:\\s*\"Warning\"")
               - set(severity_number, SEVERITY_NUMBER_WARN) where IsString(body) and IsMatch(body, "\"type\"\\s*:\\s*\"Warning\"")
               {{- /* Container OOM kills reach this pipeline only as PULL-mode Pod
