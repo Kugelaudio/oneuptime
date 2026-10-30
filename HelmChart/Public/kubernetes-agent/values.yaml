@@ -468,6 +468,17 @@ resourceSpecs:
   enabled: true
   interval: 300s  # How often to pull full resource specs (default: 5 minutes)
   vpa: false  # Enable VPA collection (requires VPA CRDs installed in the cluster)
+  # Window (s) in which a pulled Pod snapshot's OOMKilled lastState is raised as
+  # ERROR. Keep it at least twice the interval so two pulls land inside it.
+  oomFreshnessSeconds: 900
+  # Strip container env/envFrom/command/args and the last-applied-configuration
+  # annotation from snapshots before export. Container indexes are unrolled up
+  # to these counts; an object with more loses that whole container list.
+  redact:
+    enabled: false
+    maxContainers: 8
+    maxInitContainers: 4
+    maxEphemeralContainers: 2
 
 # Collection intervals
 collectionInterval: 30s

@@ -377,6 +377,33 @@ data:
             statements:
               - delete_key(body["metadata"], "managedFields") where IsMap(body) and IsMap(body["metadata"])
               - delete_key(body["object"]["metadata"], "managedFields") where IsMap(body) and IsMap(body["object"]) and IsMap(body["object"]["metadata"])
+              {{- if (.Values.resourceSpecs.redact | default dict).enabled }}
+              {{- /* Pull snapshots carry each container's env (DSNs, keys), envFrom,
+                     command and args (job transcripts, tokens) and the
+                     last-applied-configuration annotation, which repeats all of
+                     it. None of that is read downstream; names, images,
+                     resources, status and lastState (the OOM rule) stay.
+                     OTTL cannot iterate a list, so container indexes are
+                     unrolled like the OOM rule below. An object with more
+                     containers than the unroll covers loses its whole container
+                     list instead (fail closed): nothing secret is exported
+                     because a pod grew a sidecar. Kind guards come first so a
+                     path that does not exist for that kind is never read. */}}
+              {{- $redact := .Values.resourceSpecs.redact }}
+              {{- $lists := dict "containers" ($redact.maxContainers | default 8 | int) "initContainers" ($redact.maxInitContainers | default 4 | int) "ephemeralContainers" ($redact.maxEphemeralContainers | default 2 | int) }}
+              {{- $specs := list (list "body[\"kind\"] == \"Pod\"" "body[\"spec\"]") (list "(body[\"kind\"] == \"Deployment\" or body[\"kind\"] == \"StatefulSet\" or body[\"kind\"] == \"DaemonSet\" or body[\"kind\"] == \"Job\" or body[\"kind\"] == \"ReplicaSet\")" "body[\"spec\"][\"template\"][\"spec\"]") (list "body[\"kind\"] == \"CronJob\"" "body[\"spec\"][\"jobTemplate\"][\"spec\"][\"template\"][\"spec\"]") }}
+              {{- range $spec := $specs }}
+              {{- $kind := index $spec 0 }}{{- $path := index $spec 1 }}
+              {{- range $list := keys $lists | sortAlpha }}
+              {{- $max := get $lists $list }}
+              {{- range $i := until $max }}
+              - 'delete_matching_keys({{ $path }}["{{ $list }}"][{{ $i }}], "^(env|envFrom|command|args)$") where IsMap(body) and {{ $kind }} and {{ $path }}["{{ $list }}"] != nil and Len({{ $path }}["{{ $list }}"]) > {{ $i }}'
+              {{- end }}
+              - 'delete_key({{ $path }}, "{{ $list }}") where IsMap(body) and {{ $kind }} and {{ $path }}["{{ $list }}"] != nil and Len({{ $path }}["{{ $list }}"]) > {{ $max }}'
+              {{- end }}
+              {{- end }}
+              - delete_key(body["metadata"]["annotations"], "kubectl.kubernetes.io/last-applied-configuration") where IsMap(body) and IsMap(body["metadata"]) and IsMap(body["metadata"]["annotations"])
+              {{- end }}
 
       {{- $evt := .Values.kubernetesEvents | default dict }}
       {{- if or $evt.dropWatchDeletes $evt.dropNormalInNamespaces $evt.dropConditions }}
@@ -504,7 +531,7 @@ data:
                      ignored-error lines over pods with no containerStatuses and
                      pods with no status block at all. */}}
               {{- range $index := until 6 }}
-              - set(attributes["k8s.container.last_terminated_reason"], "OOMKilled") where IsMap(body) and body["kind"] == "Pod" and body["status"]["containerStatuses"] != nil and Len(body["status"]["containerStatuses"]) > {{ $index }} and body["status"]["containerStatuses"][{{ $index }}]["lastState"]["terminated"]["reason"] == "OOMKilled" and UnixSeconds(Now()) - UnixSeconds(Time(body["status"]["containerStatuses"][{{ $index }}]["lastState"]["terminated"]["finishedAt"], "%Y-%m-%dT%H:%M:%SZ")) < 900
+              - set(attributes["k8s.container.last_terminated_reason"], "OOMKilled") where IsMap(body) and body["kind"] == "Pod" and body["status"]["containerStatuses"] != nil and Len(body["status"]["containerStatuses"]) > {{ $index }} and body["status"]["containerStatuses"][{{ $index }}]["lastState"]["terminated"]["reason"] == "OOMKilled" and UnixSeconds(Now()) - UnixSeconds(Time(body["status"]["containerStatuses"][{{ $index }}]["lastState"]["terminated"]["finishedAt"], "%Y-%m-%dT%H:%M:%SZ")) < {{ $.Values.resourceSpecs.oomFreshnessSeconds | default 900 | int }}
               {{- end }}
               - set(severity_text, "ERROR") where attributes["k8s.container.last_terminated_reason"] == "OOMKilled"
               - set(severity_number, SEVERITY_NUMBER_ERROR) where attributes["k8s.container.last_terminated_reason"] == "OOMKilled"

@@ -481,6 +481,21 @@
         "vpa": {
           "type": "boolean",
           "description": "Enable VPA collection (requires VPA CRDs installed in the cluster)"
+        },
+        "oomFreshnessSeconds": {
+          "type": "integer",
+          "description": "Window in which a Pod snapshot's OOMKilled lastState is raised as ERROR; keep at least twice the interval."
+        },
+        "redact": {
+          "type": "object",
+          "description": "Strip container env/envFrom/command/args and last-applied-configuration from snapshots.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "maxContainers": { "type": "integer" },
+            "maxInitContainers": { "type": "integer" },
+            "maxEphemeralContainers": { "type": "integer" }
+          }
         }
       },
       "additionalProperties": false
