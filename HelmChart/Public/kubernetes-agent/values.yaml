@@ -582,6 +582,16 @@ logs:
     namespaces:
       - openstack
 
+# Kubernetes Event volume controls (Deployment collector, Events only).
+kubernetesEvents:
+  # Drop the watch's DELETED record of an Event: the API server expiring it
+  # (1 h TTL), which restates an occurrence already ingested.
+  dropWatchDeletes: false
+  # Namespaces whose Normal Events are dropped (Warning Events are kept),
+  # e.g. CI runner namespaces where every pod emits a Scheduled/Pulled/
+  # Created/Started/Killing series.
+  dropNormalInNamespaces: []
+
 # Resource spec collection — pulls full K8s resource objects (pods, nodes,
 # deployments, etc.) for displaying labels, annotations, env vars, status,
 # and other details in the dashboard. On the OpenShift presets it also pulls
