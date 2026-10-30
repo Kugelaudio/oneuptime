@@ -378,6 +378,25 @@ data:
               - delete_key(body["metadata"], "managedFields") where IsMap(body) and IsMap(body["metadata"])
               - delete_key(body["object"]["metadata"], "managedFields") where IsMap(body) and IsMap(body["object"]) and IsMap(body["object"]["metadata"])
 
+      {{- $evt := .Values.kubernetesEvents | default dict }}
+      {{- if or $evt.dropWatchDeletes $evt.dropNormalInNamespaces }}
+      # Event volume that carries no new information. A watch DELETED record is
+      # the API server expiring an Event (1 h TTL) that was already ingested as
+      # ADDED/MODIFIED. Normal Events in a namespace of short-lived pods (CI
+      # runners: Scheduled/Pulling/Pulled/Created/Started/Killing for every
+      # pod) are routine there; their Warning Events stay.
+      filter/k8sobjects_noise:
+        error_mode: ignore
+        logs:
+          log_record:
+            {{- if $evt.dropWatchDeletes }}
+            - 'IsMap(body) and body["type"] == "DELETED" and IsMap(body["object"]) and body["object"]["kind"] == "Event"'
+            {{- end }}
+            {{- range $evt.dropNormalInNamespaces }}
+            - 'IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Normal" and IsMap(body["object"]["regarding"]) and body["object"]["regarding"]["namespace"] == {{ . | quote }}'
+            {{- end }}
+      {{- end }}
+
       # The k8sobjects receiver emits LogRecords without a severity, so
       # Kubernetes events and resource snapshots arrive at OneUptime with
       # severity_number=0 and render as "Unspecified" on the Logs page.
@@ -580,6 +599,10 @@ data:
             - resource
             - transform/k8sobjects_trim
             - transform/severity
+            {{- $evt := .Values.kubernetesEvents | default dict }}
+            {{- if or $evt.dropWatchDeletes $evt.dropNormalInNamespaces }}
+            - filter/k8sobjects_noise
+            {{- end }}
             # Intentionally NOT filtered by filters.logs.minSeverity — see the
             # note on $signals above. Kubernetes events are a low-volume,
             # high-value signal, and every one of them would be dropped.

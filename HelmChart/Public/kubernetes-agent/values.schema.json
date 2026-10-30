@@ -445,6 +445,22 @@
       },
       "additionalProperties": false
     },
+    "kubernetesEvents": {
+      "type": "object",
+      "description": "Kubernetes Event volume controls for the Deployment collector (Events only).",
+      "additionalProperties": false,
+      "properties": {
+        "dropWatchDeletes": {
+          "type": "boolean",
+          "description": "Drop the watch DELETED record of an Event (its TTL expiring)."
+        },
+        "dropNormalInNamespaces": {
+          "type": "array",
+          "description": "Namespaces whose Normal Events are dropped; Warning Events are kept.",
+          "items": { "type": "string" }
+        }
+      }
+    },
     "resourceSpecs": {
       "type": "object",
       "description": "Pull full K8s resource specs for dashboard detail views (labels, annotations, env vars, status, etc.)",
