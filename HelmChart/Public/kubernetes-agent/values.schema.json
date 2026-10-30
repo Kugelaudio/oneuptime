@@ -458,6 +458,11 @@
           "type": "array",
           "description": "Namespaces whose Normal Events are dropped; Warning Events are kept.",
           "items": { "type": "string" }
+        },
+        "dropConditions": {
+          "type": "array",
+          "description": "Extra OTTL conditions on the Event body, each ANDed with a kind == Event guard.",
+          "items": { "type": "string" }
         }
       }
     },

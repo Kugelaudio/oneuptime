@@ -379,12 +379,13 @@ data:
               - delete_key(body["object"]["metadata"], "managedFields") where IsMap(body) and IsMap(body["object"]) and IsMap(body["object"]["metadata"])
 
       {{- $evt := .Values.kubernetesEvents | default dict }}
-      {{- if or $evt.dropWatchDeletes $evt.dropNormalInNamespaces }}
+      {{- if or $evt.dropWatchDeletes $evt.dropNormalInNamespaces $evt.dropConditions }}
       # Event volume that carries no new information. A watch DELETED record is
       # the API server expiring an Event (1 h TTL) that was already ingested as
       # ADDED/MODIFIED. Normal Events in a namespace of short-lived pods (CI
       # runners: Scheduled/Pulling/Pulled/Created/Started/Killing for every
-      # pod) are routine there; their Warning Events stay.
+      # pod) are routine there; their Warning Events stay. dropConditions adds
+      # cluster-specific known races (one OTTL condition each on the Event).
       filter/k8sobjects_noise:
         error_mode: ignore
         logs:
@@ -394,6 +395,11 @@ data:
             {{- end }}
             {{- range $evt.dropNormalInNamespaces }}
             - 'IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Normal" and IsMap(body["object"]["regarding"]) and body["object"]["regarding"]["namespace"] == {{ . | quote }}'
+            {{- end }}
+            {{- /* Cluster-specific known races, each an OTTL condition on the Event
+                   body, always ANDed with "this record is an Event". */}}
+            {{- range $evt.dropConditions }}
+            - {{ printf "IsMap(body) and IsMap(body[\"object\"]) and body[\"object\"][\"kind\"] == \"Event\" and (%s)" . | squote }}
             {{- end }}
       {{- end }}
 
@@ -600,7 +606,7 @@ data:
             - transform/k8sobjects_trim
             - transform/severity
             {{- $evt := .Values.kubernetesEvents | default dict }}
-            {{- if or $evt.dropWatchDeletes $evt.dropNormalInNamespaces }}
+            {{- if or $evt.dropWatchDeletes $evt.dropNormalInNamespaces $evt.dropConditions }}
             - filter/k8sobjects_noise
             {{- end }}
             # Intentionally NOT filtered by filters.logs.minSeverity — see the
