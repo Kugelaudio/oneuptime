@@ -591,6 +591,9 @@ kubernetesEvents:
   # e.g. CI runner namespaces where every pod emits a Scheduled/Pulled/
   # Created/Started/Killing series.
   dropNormalInNamespaces: []
+  # Extra OTTL conditions on the Event body (body["object"]...), each ANDed
+  # with a kind == "Event" guard, for known races a cluster accepts.
+  dropConditions: []
 
 # Resource spec collection — pulls full K8s resource objects (pods, nodes,
 # deployments, etc.) for displaying labels, annotations, env vars, status,
