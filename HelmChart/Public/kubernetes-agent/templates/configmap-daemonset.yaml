@@ -7,6 +7,14 @@
 {{- if and .Values.logs.transformStatements (or (not $wantLogs) .Values.logs.windowsPods.enabled) }}
 {{- fail "logs.transformStatements requires DaemonSet-only pod log collection" }}
 {{- end }}
+{{- $checkpoint := and $wantLogs .Values.logs.checkpoint.enabled }}
+{{- $startAt := .Values.logs.startAt | default "end" }}
+{{- if not (has $startAt (list "end" "beginning")) }}
+{{- fail "logs.startAt must be \"end\" or \"beginning\"" }}
+{{- end }}
+{{- if and (eq $startAt "beginning") (not $checkpoint) }}
+{{- fail "logs.startAt=beginning requires logs.checkpoint.enabled and DaemonSet pod-log collection: without persisted offsets every restart re-reads every file from byte 0 and duplicates it" }}
+{{- end }}
 {{- if eq (include "kubernetes-agent.daemonSetEnabled" .) "true" }}
 apiVersion: v1
 kind: ConfigMap
@@ -20,6 +28,16 @@ data:
     extensions:
       health_check:
         endpoint: "0.0.0.0:13133"
+      {{- if $checkpoint }}
+      # Persists the filelog receivers' file offsets on the node (hostPath), so a
+      # restarted collector resumes each file where it stopped instead of
+      # consulting start_at again. The receiver's rule (filelog README, pinned
+      # collector): with stored offsets `start_at` is ignored and every file
+      # that is new since is read from its first byte.
+      file_storage/pod_logs:
+        directory: {{ include "kubernetes-agent.checkpointDir" . | quote }}
+        timeout: 10s
+      {{- end }}
 
     receivers:
       # Collect node, pod, and container resource metrics from kubelet
@@ -131,7 +149,10 @@ data:
           {{- range .Values.auditLogs.paths }}
           - {{ . | quote }}
           {{- end }}
-        start_at: end
+        start_at: {{ $startAt }}
+        {{- if $checkpoint }}
+        storage: file_storage/pod_logs
+        {{- end }}
         include_file_path: true
         operators:
           - type: json_parser
@@ -178,7 +199,10 @@ data:
           {{- range $podLogExclude }}
           - /var/log/pods/{{ . }}_*/*/*.log
           {{- end }}
-        start_at: end
+        start_at: {{ $startAt }}
+        {{- if $checkpoint }}
+        storage: file_storage/pod_logs
+        {{- end }}
         include_file_path: true
         include_file_name: false
         operators:
@@ -618,6 +642,9 @@ data:
     service:
       extensions:
         - health_check
+        {{- if $checkpoint }}
+        - file_storage/pod_logs
+        {{- end }}
       pipelines:
         metrics:
           receivers:

@@ -732,3 +732,13 @@ resolves to nothing and every poll would fail against it.
 http://{{ include "kubernetes-agent.fullname" . }}-cost-prometheus.{{ .Release.Namespace }}.svc.cluster.local:9090
 {{- end -}}
 {{- end -}}
+
+{{/*
+Node directory holding this release's filelog offsets: the configured base plus
+namespace and release name. Both are stable across pod replacement (never the
+pod UID, which would orphan the offsets on every restart) and keep two agent
+releases on one node from sharing, and corrupting, each other's offsets.
+*/}}
+{{- define "kubernetes-agent.checkpointDir" -}}
+{{ printf "%s/%s/%s" (trimSuffix "/" .Values.logs.checkpoint.hostPath) .Release.Namespace (include "kubernetes-agent.fullname" .) }}
+{{- end -}}
