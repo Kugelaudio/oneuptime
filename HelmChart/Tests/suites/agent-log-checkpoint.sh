@@ -44,4 +44,24 @@ else
     pass "an unknown startAt fails rendering"
 fi
 
+# Two releases on one node must not share a store (the offsets are keyed by
+# receiver id only), and a re-render of one release must keep its path.
+dir_of() { grep -o 'directory: "/var/lib/otelcol-kubernetes-agent/[^"]*"' <<<"$1"; }
+render() { helm template "$@" --set clusterName=x --set oneuptime.url=https://example.invalid \
+    --set oneuptime.apiKey=test --set logs.checkpoint.enabled=true \
+    --show-only templates/configmap-daemonset.yaml; }
+a="$(dir_of "$(render rel-a "$KUBERNETES_AGENT_CHART_DIR" --namespace ns1)")"
+a_again="$(dir_of "$(render rel-a "$KUBERNETES_AGENT_CHART_DIR" --namespace ns1)")"
+b_name="$(dir_of "$(render rel-b "$KUBERNETES_AGENT_CHART_DIR" --namespace ns1)")"
+b_ns="$(dir_of "$(render rel-a "$KUBERNETES_AGENT_CHART_DIR" --namespace ns2)")"
+assert_present "the store path names its namespace" "$a" "/ns1/"
+assert_eq "a re-render keeps the same path" "$a" "$a_again"
+[ "$a" != "$b_name" ] && pass "different release names get different stores" || fail "release names share a store"
+[ "$a" != "$b_ns" ] && pass "different namespaces get different stores" || fail "namespaces share a store"
+ds_a="$(helm template rel-a "$KUBERNETES_AGENT_CHART_DIR" --namespace ns1 --set clusterName=x \
+    --set oneuptime.url=https://example.invalid --set oneuptime.apiKey=test \
+    --set logs.checkpoint.enabled=true --show-only templates/daemonset.yaml)"
+assert_eq "hostPath, mount and extension directory agree" 3 \
+    "$(grep -o "$(sed 's/directory: //' <<<"$a")" <<<"$ds_a$(render rel-a "$KUBERNETES_AGENT_CHART_DIR" --namespace ns1)" | wc -l)"
+
 harness_report

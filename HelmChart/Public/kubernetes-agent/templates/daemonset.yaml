@@ -87,7 +87,7 @@ spec:
               readOnly: true
             {{- if $checkpoint }}
             - name: log-checkpoint
-              mountPath: {{ .Values.logs.checkpoint.hostPath | quote }}
+              mountPath: {{ include "kubernetes-agent.checkpointDir" . | quote }}
             {{- end }}
             {{- if $wantLogs }}
             - name: varlogpods
@@ -134,7 +134,7 @@ spec:
         {{- if $checkpoint }}
         - name: log-checkpoint
           hostPath:
-            path: {{ .Values.logs.checkpoint.hostPath | quote }}
+            path: {{ include "kubernetes-agent.checkpointDir" . | quote }}
             type: DirectoryOrCreate
         {{- end }}
         {{- if $wantHostMetrics }}

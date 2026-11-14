@@ -398,6 +398,7 @@ logs:
   # (root by default) so it can write the hostPath directory.
   checkpoint:
     enabled: false
+    # Base directory; each release stores under <hostPath>/<namespace>/<fullname>.
     hostPath: /var/lib/otelcol-kubernetes-agent
     runAsUser: 0
   # Leave empty to let the `preset` choose: "standard" -> daemonset,

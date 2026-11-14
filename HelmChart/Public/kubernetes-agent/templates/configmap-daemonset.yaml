@@ -35,7 +35,7 @@ data:
       # collector): with stored offsets `start_at` is ignored and every file
       # that is new since is read from its first byte.
       file_storage/pod_logs:
-        directory: {{ .Values.logs.checkpoint.hostPath | quote }}
+        directory: {{ include "kubernetes-agent.checkpointDir" . | quote }}
         timeout: 10s
       {{- end }}
 
