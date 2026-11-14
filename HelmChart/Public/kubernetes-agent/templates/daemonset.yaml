@@ -7,6 +7,7 @@
 */}}
 {{- $wantLogs := eq (include "kubernetes-agent.daemonSetLogsEnabled" .) "true" }}
 {{- $wantHostMetrics := eq (include "kubernetes-agent.hostMetricsEnabled" .) "true" }}
+{{- $checkpoint := and $wantLogs .Values.logs.checkpoint.enabled }}
 {{- if eq (include "kubernetes-agent.daemonSetEnabled" .) "true" }}
 apiVersion: apps/v1
 kind: DaemonSet
@@ -93,10 +94,21 @@ spec:
                   key: api-key
           resources:
             {{- toYaml .Values.logs.resources | nindent 12 }}
+          {{- if $checkpoint }}
+          # The collector image runs as UID 10001 and cannot write a root-owned
+          # hostPath directory. Root is confined to this container; every other
+          # mount stays read-only.
+          securityContext:
+            runAsUser: {{ .Values.logs.checkpoint.runAsUser }}
+          {{- end }}
           volumeMounts:
             - name: config
               mountPath: /etc/otel
               readOnly: true
+            {{- if $checkpoint }}
+            - name: log-checkpoint
+              mountPath: {{ include "kubernetes-agent.checkpointDir" . | quote }}
+            {{- end }}
             {{- if $wantLogs }}
             - name: varlogpods
               mountPath: /var/log/pods
@@ -138,6 +150,12 @@ spec:
         - name: varlogpods
           hostPath:
             path: /var/log/pods
+        {{- end }}
+        {{- if $checkpoint }}
+        - name: log-checkpoint
+          hostPath:
+            path: {{ include "kubernetes-agent.checkpointDir" . | quote }}
+            type: DirectoryOrCreate
         {{- end }}
         {{- if $wantHostMetrics }}
         - name: host-proc
