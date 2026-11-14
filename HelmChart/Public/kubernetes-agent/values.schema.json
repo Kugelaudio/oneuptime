@@ -348,6 +348,21 @@
           "items": { "type": "string", "minLength": 1 },
           "description": "OTTL log-context statements for DaemonSet pod logs after Kubernetes metadata enrichment and before severity filtering. Not supported with API or Windows log tailers. Empty preserves the default pipeline."
         },
+        "startAt": {
+          "type": "string",
+          "enum": ["end", "beginning"],
+          "description": "Where the DaemonSet filelog receivers begin a file they hold no offset for. 'beginning' requires logs.checkpoint.enabled. Default: end"
+        },
+        "checkpoint": {
+          "type": "object",
+          "description": "Persist filelog offsets on a node hostPath (file_storage extension) so a restart resumes instead of consulting start_at.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "hostPath": { "type": "string", "pattern": "^/.+" },
+            "runAsUser": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
         "enabled": {
           "type": "boolean"
         },

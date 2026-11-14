@@ -379,6 +379,27 @@ logs:
   # use these statements; configuring both is rejected rather than ignored.
   # Validate statements with the configured Collector image before deployment.
   transformStatements: []
+  # Where the DaemonSet's filelog receivers begin a file they have no offset for:
+  # "end" (default: lines already in a file when the collector starts are never
+  # read) or "beginning". Per the filelog receiver, a file that appears after the
+  # collector's first poll is always read from its first byte, and when stored
+  # offsets exist `start_at` is ignored; it decides only files present on the
+  # first poll of a collector with NO stored offsets. "beginning" therefore
+  # requires `checkpoint.enabled` (rendering fails otherwise): without persisted
+  # offsets every restart would re-read every pod log file and duplicate it. On a
+  # node that already has pod logs, the first start with "beginning" ingests all
+  # of them from byte 0; roll out `checkpoint.enabled` with "end" first so each
+  # node stores its offsets, then switch to "beginning" (a no-op on those nodes;
+  # it only takes effect on a node whose store is empty, i.e. a new node).
+  startAt: end
+  # Persist the filelog offsets (file_storage extension on a node hostPath), so a
+  # restarted collector resumes where it stopped and reads every file created
+  # during the restart from its first byte. Runs the collector as `runAsUser`
+  # (root by default) so it can write the hostPath directory.
+  checkpoint:
+    enabled: false
+    hostPath: /var/lib/otelcol-kubernetes-agent
+    runAsUser: 0
   # Leave empty to let the `preset` choose: "standard" -> daemonset,
   # "gke-autopilot" / "eks-fargate" -> api. Override explicitly if you know
   # what you want: "daemonset" | "api" | "disabled".
