@@ -381,8 +381,12 @@ data:
           #     read as a level: Postgres files real failures there too (`server
           #     process (PID n) was terminated by signal 9: Killed`, pg_cron's
           #     `cron job N failed`), so a LOG line takes the content fallback.
-          #     STATEMENT is printed only beside an error (log_min_error_statement
-          #     defaults to error), so it is ERROR. The agent occasionally hands
+          #     STATEMENT is not a level either: it repeats the query of the line
+          #     before it whenever that line ranks at or above
+          #     log_min_error_statement (default error), and in that ranking LOG
+          #     sits above ERROR, so every PL/pgSQL `RAISE LOG` inside a query
+          #     gets one. It takes the content fallback; the line it follows keeps its own
+          #     level, so an ERROR stays on the Error page. The agent occasionally hands
           #     over two Postgres lines as one record; when a LATER line is
           #     ERROR/FATAL/PANIC that level wins (POSTGRES-JOINED), so a LOG line
           #     in front can never carry an error off the Error page.
@@ -414,7 +418,7 @@ data:
               - output: parse-severity-postgres-joined
                 expr: 'body matches "\\n(?:\\[local\\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)? [A-Z]{2,5} \\[[0-9]+\\] (?:[^ \\n]+@[^ \\n]+ )?(ERROR|FATAL|PANIC):  "'
               - output: parse-severity-postgres
-                expr: 'body matches "^(?:\\[local\\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)? [A-Z]{2,5} \\[[0-9]+\\] (?:[^ \\n]+@[^ \\n]+ )?(DEBUG[1-5]|INFO|NOTICE|WARNING|ERROR|FATAL|PANIC|STATEMENT):  "'
+                expr: 'body matches "^(?:\\[local\\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)? [A-Z]{2,5} \\[[0-9]+\\] (?:[^ \\n]+@[^ \\n]+ )?(DEBUG[1-5]|INFO|NOTICE|WARNING|ERROR|FATAL|PANIC):  "'
               - output: parse-severity-from-body
                 expr: 'body matches "(?i)(?:^(?:[^A-Za-z\"\\n]|[A-Za-z][A-Za-z0-9_]*[ \\t]*[.:=,/>|)}\\]-]|(?:Z|UTC|GMT)[ \\t]+|\\([A-Za-z0-9_]+ pid=[0-9]+\\) )*?|(?:^|[\\s,{\\[])\"?(?:log[._]?level|severity_?text|severity|levelname|level|lvl)\"?[ \\t]*[:=][ \\t]*\"?)(TRACE|DEBUG|INFO|NOTICE|WARNING|WARN|EMERGENCY|EMERG|ALERT|CRITICAL|CRIT|ERROR|ERR|FATAL|DPANIC|PANIC)(?:$|[\\s\\]:=,)\"}|>])"'
               - output: add-fault-severity
@@ -437,7 +441,7 @@ data:
             output: severity-parser
           - type: regex_parser
             id: parse-severity-postgres
-            regex: '^(?:\[local\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)? [A-Z]{2,5} \[[0-9]+\] (?:[^ \n]+@[^ \n]+ )?(?P<severity_text>DEBUG[1-5]|INFO|NOTICE|WARNING|ERROR|FATAL|PANIC|STATEMENT):  '
+            regex: '^(?:\[local\]|[0-9A-Fa-f:.]+)? ?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)? [A-Z]{2,5} \[[0-9]+\] (?:[^ \n]+@[^ \n]+ )?(?P<severity_text>DEBUG[1-5]|INFO|NOTICE|WARNING|ERROR|FATAL|PANIC):  '
             parse_from: body
             output: severity-parser
           - type: regex_parser
@@ -481,7 +485,6 @@ data:
                 - err
                 - crit
                 - critical
-                - statement
               # PSR-3 / syslog put alert and emergency above critical, and
               # neither has a built-in mapping; nginx writes it as [emerg].
               fatal:
