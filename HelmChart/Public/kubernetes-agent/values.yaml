@@ -485,6 +485,11 @@ kubernetesEvents:
   # Extra OTTL conditions on the Event body (body["object"]...), each ANDed
   # with a kind == "Event" guard, for known races a cluster accepts.
   dropConditions: []
+  # Opt-in OTTL statements (log context) run last on Event and snapshot records,
+  # after severity and the noise filter, to reshape a record: for example a
+  # one-line body and the Event's fields as attributes. Each statement must
+  # guard on body["object"]["kind"] == "Event" itself. Empty: nothing runs.
+  transformStatements: []
 
 resourceSpecs:
   enabled: true
