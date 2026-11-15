@@ -218,8 +218,9 @@ RUN npm run build-frontends:prod
 # Written into FeatureSet/Docs/build and FeatureSet/APIReference/build, which
 # the pruned stages keep (they remove /usr/src/app/build, the type-check's).
 RUN npm run build-docs-css
-# Bundle app source
-RUN npm run compile
+# Bundle app source. The complete application graph exceeds Node's default
+# ~2 GiB old-space limit during `tsc` on clean release builds (KugelAudio modification).
+RUN NODE_OPTIONS=--max-old-space-size=6144 npm run compile
 # The license terms travel with both images: LICENSE (the Apache License 2.0,
 # after a preamble that carves ee/ out of it) and the NOTICE that repeats that
 # split (the enterprise target adds ee/LICENSE with ee/). Root-owned, so the
