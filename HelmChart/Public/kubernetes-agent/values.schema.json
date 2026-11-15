@@ -509,6 +509,11 @@
           "type": "array",
           "description": "Extra OTTL conditions on the Event body, each ANDed with a kind == Event guard.",
           "items": { "type": "string" }
+        },
+        "transformStatements": {
+          "type": "array",
+          "description": "Opt-in OTTL statements (log context) run last on Events-pipeline records; each guards on kind == Event itself.",
+          "items": { "type": "string" }
         }
       }
     },

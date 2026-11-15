@@ -629,6 +629,20 @@ data:
             {{- end }}
       {{- end }}
 
+      {{- if $evt.transformStatements }}
+      # Opt-in last step of the Events pipeline (after severity and noise
+      # filtering, so a rewritten body never feeds a severity rule): OTTL
+      # statements in the log context that reshape a watch record, e.g. into a
+      # one-line body with the Event's fields as attributes. Each statement
+      # carries its own Event guard; records it does not match pass unchanged.
+      transform/k8sobjects_events:
+        error_mode: ignore
+        log_statements:
+          - context: log
+            statements:
+              {{- toYaml $evt.transformStatements | nindent 14 }}
+      {{- end }}
+
       # The k8sobjects receiver emits LogRecords without a severity, so
       # Kubernetes events and resource snapshots arrive at OneUptime with
       # severity_number=0 and render as "Unspecified" on the Logs page.
@@ -1081,6 +1095,9 @@ data:
             {{- $evt := .Values.kubernetesEvents | default dict }}
             {{- if or $evt.dropWatchDeletes $evt.dropNormalInNamespaces $evt.dropConditions }}
             - filter/k8sobjects_noise
+            {{- end }}
+            {{- if $evt.transformStatements }}
+            - transform/k8sobjects_events
             {{- end }}
             # Intentionally NOT filtered by filters.logs.minSeverity — see the
             # note on $signals above. Kubernetes events are a low-volume,
