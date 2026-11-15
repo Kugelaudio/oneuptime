@@ -587,10 +587,13 @@ data:
                      containers than the unroll covers loses its whole container
                      list instead (fail closed): nothing secret is exported
                      because a pod grew a sidecar. Kind guards come first so a
-                     path that does not exist for that kind is never read. */}}
+                     path that does not exist for that kind is never read.
+                     OpenShift's DeploymentConfig (pulled by k8sobjects/openshift
+                     on the OpenShift presets) carries the same pod template at
+                     spec.template.spec. */}}
               {{- $redact := .Values.resourceSpecs.redact }}
               {{- $lists := dict "containers" ($redact.maxContainers | default 8 | int) "initContainers" ($redact.maxInitContainers | default 4 | int) "ephemeralContainers" ($redact.maxEphemeralContainers | default 2 | int) }}
-              {{- $specs := list (list "body[\"kind\"] == \"Pod\"" "body[\"spec\"]") (list "(body[\"kind\"] == \"Deployment\" or body[\"kind\"] == \"StatefulSet\" or body[\"kind\"] == \"DaemonSet\" or body[\"kind\"] == \"Job\" or body[\"kind\"] == \"ReplicaSet\")" "body[\"spec\"][\"template\"][\"spec\"]") (list "body[\"kind\"] == \"CronJob\"" "body[\"spec\"][\"jobTemplate\"][\"spec\"][\"template\"][\"spec\"]") }}
+              {{- $specs := list (list "body[\"kind\"] == \"Pod\"" "body[\"spec\"]") (list "(body[\"kind\"] == \"Deployment\" or body[\"kind\"] == \"StatefulSet\" or body[\"kind\"] == \"DaemonSet\" or body[\"kind\"] == \"Job\" or body[\"kind\"] == \"ReplicaSet\" or body[\"kind\"] == \"DeploymentConfig\")" "body[\"spec\"][\"template\"][\"spec\"]") (list "body[\"kind\"] == \"CronJob\"" "body[\"spec\"][\"jobTemplate\"][\"spec\"][\"template\"][\"spec\"]") }}
               {{- range $spec := $specs }}
               {{- $kind := index $spec 0 }}{{- $path := index $spec 1 }}
               {{- range $list := keys $lists | sortAlpha }}
@@ -753,6 +756,12 @@ data:
               {{- end }}
               - set(severity_text, "ERROR") where attributes["k8s.container.last_terminated_reason"] == "OOMKilled"
               - set(severity_number, SEVERITY_NUMBER_ERROR) where attributes["k8s.container.last_terminated_reason"] == "OOMKilled"
+              {{- /* Kugelaudio fork: the rules above are the severity a watched Event is
+                     stored with, demotions to INFO included (#26, #27, #31). Ingest raises
+                     every Warning Event to WARN for agents that send all Events as INFO;
+                     this marker tells it the agent already decided, so the demotions hold
+                     (KubernetesEvent.ts, KUBERNETES_EVENT_SEVERITY_SOURCE_ATTRIBUTE). */}}
+              - set(attributes["oneuptime.kubernetes.event.severity_source"], "agent") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event"
 
       # Container restarts as OneUptime's CrashLoopBackOff Detection template
       # counts them: k8s.container.restarts.increase, the times a container

@@ -108,6 +108,8 @@ interface EventRecordOptions {
   severityNumber?: number | undefined;
   severityText?: string | undefined;
   timeUnixNano?: string | undefined;
+  // Kugelaudio fork: the agent says its rules decided the severity.
+  severityDecidedByAgent?: boolean | undefined;
 }
 
 /*
@@ -135,6 +137,14 @@ function eventRecord(
       stringAttribute("event.domain", "k8s"),
       stringAttribute("event.name", fields.name),
       stringAttribute("k8s.resource.name", "events"),
+      ...(options.severityDecidedByAgent
+        ? [
+            stringAttribute(
+              "oneuptime.kubernetes.event.severity_source",
+              "agent",
+            ),
+          ]
+        : []),
     ],
     body: watchedEventBody(
       options.watchType || "MODIFIED",
@@ -418,6 +428,27 @@ describe("severity and time, whoever sent the Event", () => {
     expect(rows[0]!["severityText"]).toBe(LogSeverity.Warning);
     expect(rows[1]!["severityText"]).toBe(LogSeverity.Information);
     expect(rows[1]!["severityNumber"]).toBe(9);
+  });
+
+  /*
+   * Kugelaudio fork: the fork's agent demotes some Warning Events to INFO (a
+   * node's boot-time InvalidDiskCapacity, a watch's DELETED restatement) and
+   * marks the severity as its own; ingest must not raise those back to WARN.
+   */
+  test("a Warning the fork's agent demoted to INFO stays INFO", async () => {
+    const rows: Array<JSONObject> = setupIngestMocks();
+
+    await OtelLogsIngestService.processLogsFromQueue(
+      agentRequest([
+        eventRecord(OOM, { severityNumber: 9, severityDecidedByAgent: true }),
+        eventRecord(OOM, { severityNumber: 9 }),
+      ]),
+    );
+
+    expect(rows[0]!["severityNumber"]).toBe(9);
+    expect(rows[0]!["severityText"]).toBe(LogSeverity.Information);
+    // Without the marker (an agent that sends every Event INFO): raised.
+    expect(rows[1]!["severityNumber"]).toBe(13);
   });
 
   test("a pipeline that made a warning an ERROR keeps it an ERROR", async () => {

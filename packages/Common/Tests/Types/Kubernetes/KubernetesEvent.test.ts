@@ -8,6 +8,7 @@ import KubernetesEventAttribute, {
   getKubernetesEventLogAttributes,
   getKubernetesEventLogTime,
   getKubernetesEventSeverityNumber,
+  KUBERNETES_EVENT_SEVERITY_SOURCE_ATTRIBUTE,
   isKubernetesEventLogRecord,
   isKubernetesWarningEvent,
   parseKubernetesEventFromLogBody,
@@ -502,6 +503,39 @@ describe("the severity an Event's record is stored with", () => {
         severityNumber: 1,
       }),
     ).toBe(13);
+  });
+
+  /*
+   * Kugelaudio fork: the fork's agent demotes some Warning Events to INFO (a
+   * node's boot-time InvalidDiskCapacity, a watch's DELETED restatement) and
+   * says it decided; ingest keeps that instead of raising it back to WARN.
+   */
+  test("a severity the agent says it decided is kept, a demoted Warning included", () => {
+    expect(
+      getKubernetesEventSeverityNumber({
+        eventType: "Warning",
+        severityNumber: 9,
+        severityDecidedByAgent: true,
+      }),
+    ).toBe(9);
+    expect(
+      getKubernetesEventSeverityNumber({
+        eventType: "Warning",
+        severityNumber: 17,
+        severityDecidedByAgent: true,
+      }),
+    ).toBe(17);
+    // Nothing decided (no severity at all): the Warning is still raised.
+    expect(
+      getKubernetesEventSeverityNumber({
+        eventType: "Warning",
+        severityNumber: 0,
+        severityDecidedByAgent: true,
+      }),
+    ).toBe(KUBERNETES_WARNING_EVENT_SEVERITY_NUMBER);
+    expect(KUBERNETES_EVENT_SEVERITY_SOURCE_ATTRIBUTE).toBe(
+      "oneuptime.kubernetes.event.severity_source",
+    );
   });
 
   test("a Warning is never lowered: a collector's ERROR or WARN3 stays", () => {

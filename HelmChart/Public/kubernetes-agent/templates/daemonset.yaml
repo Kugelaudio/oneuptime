@@ -62,9 +62,19 @@ spec:
         - name: otel-collector
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- if eq (include "kubernetes-agent.openshift" .) "true" }}
+          {{- if or (eq (include "kubernetes-agent.openshift" .) "true") $checkpoint }}
           securityContext:
+            {{- if eq (include "kubernetes-agent.openshift" .) "true" }}
             {{- include "kubernetes-agent.restrictedContainerSecurityContext" . | nindent 12 }}
+            {{- end }}
+            {{- if $checkpoint }}
+            # Kugelaudio fork (#32): the collector image runs as UID 10001 and
+            # cannot write a root-owned hostPath directory. Root is confined to
+            # this container; every other mount stays read-only. One
+            # securityContext with OpenShift's fields: two keys rendered a
+            # duplicate and the later one silently won.
+            runAsUser: {{ .Values.logs.checkpoint.runAsUser }}
+            {{- end }}
           {{- end }}
           args:
             - "--config=/etc/otel/otel-collector-config.yaml"
@@ -94,13 +104,6 @@ spec:
                   key: api-key
           resources:
             {{- toYaml .Values.logs.resources | nindent 12 }}
-          {{- if $checkpoint }}
-          # The collector image runs as UID 10001 and cannot write a root-owned
-          # hostPath directory. Root is confined to this container; every other
-          # mount stays read-only.
-          securityContext:
-            runAsUser: {{ .Values.logs.checkpoint.runAsUser }}
-          {{- end }}
           volumeMounts:
             - name: config
               mountPath: /etc/otel
