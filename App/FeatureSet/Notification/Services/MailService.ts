@@ -34,7 +34,11 @@ import EmailLog from "Common/Models/DatabaseModels/EmailLog";
 import { EmailServerType } from "Common/Models/DatabaseModels/GlobalConfig";
 import fsp from "fs/promises";
 import Handlebars from "handlebars";
-import nodemailer, { Transporter } from "nodemailer";
+import nodemailer, {
+  type SMTPSentMessageInfo,
+  type SMTPTransportOptions,
+  Transporter,
+} from "nodemailer";
 import SMTPTransport from "nodemailer/lib/smtp-transport";
 import Path from "path";
 import * as tls from "tls";
@@ -229,7 +233,7 @@ export class TransporterPool {
         accessToken: accessToken,
       },
       connectionTimeout: options.timeout || 60000,
-    } as nodemailer.TransportOptions);
+    } as SMTPTransportOptions);
   }
 
   private static createTransporter(
@@ -584,7 +588,7 @@ export default class MailService {
     try {
       for (let attempt: number = 1; attempt <= maxRetries; attempt++) {
         try {
-          const sendMailResponse: SMTPTransport.SentMessageInfo =
+          const sendMailResponse: SMTPSentMessageInfo =
             await mailer.sendMail({
               from: `${options.emailServer.fromName.toString()} <${options.emailServer.fromEmail.toString()}>`,
               to: mail.toEmail.toString(),
