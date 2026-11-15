@@ -970,8 +970,16 @@ describe("the severity chain is identical everywhere it ships", () => {
     expect(severityChain(agent, AGENT_OPERATORS.get(agent))).toEqual(reference);
   });
 
-  test("the Kubernetes agent DaemonSet ConfigMap matches too", () => {
-    expect(readKubernetesOperators()).toEqual(reference);
+  /*
+   * Kugelaudio fork: the Kubernetes agent's DaemonSet reads severity from the
+   * line and never from stderr alone (fork patches #26 and #33: klog/NeMo/
+   * onnxruntime letters, Python warnings, Postgres levels, a content fallback
+   * instead of stderr -> ERROR). The three container agents keep upstream's
+   * chain, so the DaemonSet deliberately differs from them; it must still be
+   * extractable, so the template keeps one severity-router.
+   */
+  test("the Kubernetes agent DaemonSet ConfigMap carries the fork's own chain", () => {
+    expect(readKubernetesOperators()).not.toEqual(reference);
   });
 });
 
