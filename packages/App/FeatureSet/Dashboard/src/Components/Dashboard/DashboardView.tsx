@@ -439,13 +439,11 @@ const DashboardViewer: FunctionComponent<ComponentProps> = (
     setIsLoading(false);
 
     /*
-     * Warm the autocomplete suggestion cache without blocking the render -
-     * for an editor to come. A playlist's turn is never edited, and a wall
-     * would ask for it with every dashboard it shows.
+     * Kugelaudio fork (#6): no attribute warm-up on load. A configured
+     * dashboard only views; the autocomplete cache loads once the board
+     * enters edit mode (the dashboardMode effect below), so viewing never
+     * starts a telemetry discovery scan.
      */
-    if (!isPlayback) {
-      loadTelemetryAttributesInBackground();
-    }
   };
 
   useEffect(() => {
