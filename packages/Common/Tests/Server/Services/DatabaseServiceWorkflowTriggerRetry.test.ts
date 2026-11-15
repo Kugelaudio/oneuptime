@@ -51,6 +51,7 @@ describe("DatabaseService.onTriggerWorkflow", () => {
       maxBackoffInMs: 30000,
       totalTimeoutInMs: 300000,
       retryOnlyOnRetryableErrors: true,
+      shouldRetry: expect.any(Function),
       sameServerRedirectsOnly: true,
     });
   });

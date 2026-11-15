@@ -117,6 +117,13 @@ export interface RequestOptions {
    */
   retryOnlyOnRetryableErrors?: boolean | undefined;
   /*
+   * Kugelaudio fork: a caller's own say on whether a failure is worth
+   * another attempt, asked after isRetryableError. For a request that is
+   * not safe to send twice (the workflow trigger), it keeps the retries to
+   * failures the receiver cannot have acted on.
+   */
+  shouldRetry?: ((error: unknown) => boolean) | undefined;
+  /*
    * Wall-clock budget for the whole call, every attempt and backoff
    * included. No attempt is started that the budget cannot pay for, so N
    * retries of a request that times out can no longer take N x timeout and
@@ -765,6 +772,10 @@ export default class API {
            * ladder of backoffs that cannot change the answer.
            */
           if (options?.retryOnlyOnRetryableErrors && !API.isRetryableError(e)) {
+            throw e;
+          }
+
+          if (options?.shouldRetry && !options.shouldRetry(e)) {
             throw e;
           }
 

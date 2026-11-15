@@ -5766,9 +5766,11 @@ class DatabaseService<TBaseModel extends BaseModel> extends BaseService {
    * re-sends it, so a request lost while the worker restarts is a workflow
    * that never runs. On 2026-10-06 the workers restarted after a Redis stall
    * and 8 of 26 alert on-create triggers were dropped this way, including
-   * five high-severity pages. Retry transport failures and 5xx for up to five
-   * minutes, which covers a worker rollout; a 4xx is the request itself being
-   * wrong and fails at once.
+   * five high-severity pages. Retry, for up to five minutes (a worker
+   * rollout), the failures the worker cannot have acted on - a refused
+   * connection, a 5xx - and never a request whose answer was lost
+   * (isWorkflowTriggerUndelivered); a 4xx is the request itself being wrong
+   * and fails at once.
    */
   public static readonly WORKFLOW_TRIGGER_REQUEST_OPTIONS: RequestOptions = {
     retries: 8,
@@ -5776,9 +5778,50 @@ class DatabaseService<TBaseModel extends BaseModel> extends BaseService {
     maxBackoffInMs: 30000,
     totalTimeoutInMs: 300000,
     retryOnlyOnRetryableErrors: true,
+    shouldRetry: (error: unknown): boolean => {
+      return DatabaseService.isWorkflowTriggerUndelivered(error);
+    },
     // Upstream 14: the worker call follows redirects to the same server only.
     sameServerRedirectsOnly: true,
   };
+
+  /*
+   * Connection errors that mean the request never reached the worker.
+   */
+  private static readonly WORKFLOW_TRIGGER_NOT_SENT_CODES: Array<string> = [
+    "ECONNREFUSED",
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "EHOSTUNREACH",
+    "ENETUNREACH",
+  ];
+
+  /*
+   * Whether a failed trigger is safe to send again. The trigger is not
+   * idempotent: every POST the worker receives starts every workflow on it
+   * once more. The worker answers "Triggered" before it starts any workflow
+   * (OnTriggerBaseModel.initTrigger), so a failure the worker ANSWERED (a
+   * 5xx, a 429) came before any run, and a connection that never opened
+   * never reached it: both are retried. A request that was sent but got no
+   * answer (a reset, a timeout) may have started the runs, and is not sent
+   * again, so a lost response never runs a workflow twice.
+   */
+  public static isWorkflowTriggerUndelivered(error: unknown): boolean {
+    if (!error || typeof error !== "object") {
+      return false;
+    }
+    const failure: { response?: unknown; code?: unknown } = error as {
+      response?: unknown;
+      code?: unknown;
+    };
+    if (failure.response) {
+      return API.isRetryableError(error);
+    }
+    return (
+      typeof failure.code === "string" &&
+      DatabaseService.WORKFLOW_TRIGGER_NOT_SENT_CODES.includes(failure.code)
+    );
+  }
 
   /**
    * Derive the telemetry attribute key for this model's primary id, e.g.
