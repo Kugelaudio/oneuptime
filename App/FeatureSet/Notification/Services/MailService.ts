@@ -47,8 +47,11 @@ import * as tls from "tls";
  * Connection pool for email transporters
  * Exported so the SSRF guard on tenant-supplied SMTP hosts can be tested.
  */
+// The transporter nodemailer 10 returns for an SMTP transport: its sendMail resolves to SMTPSentMessageInfo.
+type SmtpMailer = Transporter<SMTPSentMessageInfo>;
+
 export class TransporterPool {
-  private static pools: Map<string, Transporter> = new Map();
+  private static pools: Map<string, SmtpMailer> = new Map();
   private static semaphore: Map<string, number> = new Map();
   private static readonly MAX_CONCURRENT_CONNECTIONS = 100;
 
@@ -145,7 +148,7 @@ export class TransporterPool {
   public static async getTransporter(
     emailServer: EmailServer,
     options: { timeout?: number | undefined },
-  ): Promise<Transporter> {
+  ): Promise<SmtpMailer> {
     await this.assertMailServerHostIsAllowed(emailServer);
 
     /*
@@ -159,7 +162,7 @@ export class TransporterPool {
     const key: string = this.getPoolKey(emailServer);
 
     if (!this.pools.has(key)) {
-      const transporter: Transporter = this.createTransporter(
+      const transporter: SmtpMailer = this.createTransporter(
         emailServer,
         options,
       );
@@ -173,7 +176,7 @@ export class TransporterPool {
   private static async createOAuthTransporter(
     emailServer: EmailServer,
     options: { timeout?: number | undefined },
-  ): Promise<Transporter> {
+  ): Promise<SmtpMailer> {
     const { portNumber, wantsSecureConnection, secureConnection, requireTLS } =
       this.resolveConnectionSettings(emailServer);
 
@@ -239,7 +242,7 @@ export class TransporterPool {
   private static createTransporter(
     emailServer: EmailServer,
     options: { timeout?: number | undefined },
-  ): Transporter {
+  ): SmtpMailer {
     const { portNumber, wantsSecureConnection, secureConnection, requireTLS } =
       this.resolveConnectionSettings(emailServer);
 
@@ -547,7 +550,7 @@ export default class MailService {
     options: {
       timeout?: number | undefined;
     },
-  ): Promise<Transporter> {
+  ): Promise<SmtpMailer> {
     return await TransporterPool.getTransporter(emailServer, options);
   }
 
@@ -575,7 +578,7 @@ export default class MailService {
       return;
     }
 
-    const mailer: Transporter = await this.createMailer(options.emailServer, {
+    const mailer: SmtpMailer = await this.createMailer(options.emailServer, {
       timeout: options.timeout,
     });
 
