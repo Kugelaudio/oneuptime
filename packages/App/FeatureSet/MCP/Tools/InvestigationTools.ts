@@ -1,3 +1,4 @@
+import { readOnlyToolAnnotations } from "./ToolAnnotations";
 import McpCredentialUtil, { McpCredentialInput } from "../Types/McpCredential";
 import { McpToolInfo, JSONSchemaProperty } from "../Types/McpTypes";
 import OneUptimeOperation from "../Types/OneUptimeOperation";
@@ -133,7 +134,12 @@ export function generateInvestigationTools(): McpToolInfo[] {
   return definitions.map((definition: Definition): McpToolInfo => {
     return {
       name: definition.name,
-      title: definition.name.replace(/_/g, " "),
+      title: definition.name
+        .split("_")
+        .map((word: string): string => {
+          return word.charAt(0).toUpperCase() + word.slice(1);
+        })
+        .join(" "),
       description: definition.description,
       inputSchema: {
         type: "object",
@@ -141,7 +147,7 @@ export function generateInvestigationTools(): McpToolInfo[] {
         required: definition.required,
         additionalProperties: false,
       },
-      annotations: { readOnlyHint: true },
+      annotations: readOnlyToolAnnotations(),
       modelName: definition.name,
       tableName: definition.name,
       singularName: definition.name,

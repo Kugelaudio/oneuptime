@@ -286,7 +286,7 @@ async function handleCallTool(
     ) {
       throw new McpError(
         ErrorCode.MethodNotFound,
-        `Unknown or disabled tool: ${name}. Use oneuptime_help for this server's available tools.`,
+        `Unknown tool: ${name}. It may exist but not be enabled in this server's MCP_TOOL_PROFILE; use oneuptime_help for this server's available tools.`,
       );
     }
     if (isRequestTool(name) || isInvestigationTool(name)) {

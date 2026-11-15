@@ -116,6 +116,13 @@ describe("the tool handler, reached without the HTTP gate", () => {
       .spyOn(OneUptimeApiService, "executeOperation")
       .mockResolvedValue({
         _id: INCIDENT_ID,
+        /*
+         * Kugelaudio fork (#14): a list response without a data array is an
+         * error, not an empty page, so the one mock answering every tool
+         * carries the list shape too.
+         */
+        data: [],
+        count: 0,
       } as never) as unknown as jest.SpyInstance;
 
     makeAuthenticatedApiCall = jest

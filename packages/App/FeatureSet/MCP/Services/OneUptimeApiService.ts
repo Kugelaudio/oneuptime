@@ -119,6 +119,7 @@ export default class OneUptimeApiService {
         route,
         headers,
         data,
+        modelType,
       );
       MCPLogger.info(
         `Successfully executed ${operation} operation for ${tableName}`,
@@ -201,12 +202,19 @@ export default class OneUptimeApiService {
     route: Route,
     headers: Headers,
     data: JSONObject | undefined,
+    modelType?: ModelType | undefined,
   ): Promise<JSONValue> {
     let attempt: number = 0;
 
     for (;;) {
       try {
-        return await this.makeApiRequest(operation, route, headers, data);
+        return await this.makeApiRequest(
+          operation,
+          route,
+          headers,
+          data,
+          modelType,
+        );
       } catch (error) {
         const select: JSONObject | undefined = data?.["select"] as
           | JSONObject
@@ -246,9 +254,13 @@ export default class OneUptimeApiService {
     route: Route,
     headers: Headers,
     data: JSONObject | undefined,
+    modelType?: ModelType | undefined,
   ): Promise<JSONValue> {
     const url: URL = new URL(this.api.protocol, this.api.hostname, route);
-    if (operation === OneUptimeOperation.List) {
+    if (
+      operation === OneUptimeOperation.List &&
+      modelType === ModelType.Analytics
+    ) {
       // Analytics list endpoints read pagination only from the query string.
       url.addQueryParams({
         skip: String(data?.["skip"] ?? 0),

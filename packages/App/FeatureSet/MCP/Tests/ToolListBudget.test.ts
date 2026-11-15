@@ -71,9 +71,12 @@ import { McpToolInfo } from "../Types/McpTypes";
  * The budget for the whole answer: about 65,000 tokens at four bytes a token.
  * 250,000 on 2026-11-02; 260,000 on 2026-11-04, when Cloud Budget's six
  * tools (about 5,600 bytes) took the answer to 254,308, so AI agents manage
- * cloud budgets as people do (fu-cloud-costs).
+ * cloud budgets as people do (fu-cloud-costs). Kugelaudio fork: 270,000 on
+ * 2026-11-15, when the advanced profile also carries the fork's nine
+ * read-only investigation tools (268,550 bytes measured); the default
+ * investigation profile the server runs lists only those and the helpers.
  */
-const MAX_TOOLS_LIST_BYTES: number = 260_000;
+const MAX_TOOLS_LIST_BYTES: number = 270_000;
 
 // The most any one tool may take of it.
 const MAX_TOOL_BYTES: number = 5_000;

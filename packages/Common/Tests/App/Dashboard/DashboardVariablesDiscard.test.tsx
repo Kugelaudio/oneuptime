@@ -475,7 +475,8 @@ describe("DashboardView — discarding edits reconciles dashboard variables", ()
     expect(getTelemetryAttributesMock).not.toHaveBeenCalled();
     await enterEditMode();
     expect(getTelemetryAttributesMock).toHaveBeenCalledTimes(1);
-    await discardEdits();
+    // Nothing changed, so upstream 14 leaves edit mode without asking.
+    await cancelUnchangedEdit();
     await enterEditMode();
     expect(getTelemetryAttributesMock).toHaveBeenCalledTimes(1);
   });

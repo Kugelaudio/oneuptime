@@ -319,7 +319,7 @@ describe("authenticated composite-tool HTTP calls", () => {
         method: "POST",
         path: "/api/span/get-list?skip=100&limit=100",
         body: { query: {} },
-        apiKey: API_KEY,
+        credential: API_KEY,
       });
       expect(post.mock.calls[0]?.[0].url.toString()).toBe(
         "https://test.oneuptime.com/api/span/get-list?skip=100&limit=100",
@@ -358,7 +358,7 @@ it("retains pagination metadata through the real HTTPResponse unwrapping boundar
       await OneUptimeApiService.makeAuthenticatedApiCall({
         method: "POST",
         path: "/api/logs/get-list?limit=1",
-        apiKey: API_KEY,
+        credential: API_KEY,
       });
     expect(result).toMatchObject({
       data: [

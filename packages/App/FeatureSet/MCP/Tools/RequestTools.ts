@@ -1,3 +1,4 @@
+import { readOnlyToolAnnotations } from "./ToolAnnotations";
 import { McpCredentialInput } from "../Types/McpCredential";
 import { JSONSchema, JSONSchemaProperty, McpToolInfo } from "../Types/McpTypes";
 import OneUptimeOperation from "../Types/OneUptimeOperation";
@@ -103,7 +104,7 @@ export function generateRequestTools(): McpToolInfo[] {
     }): McpToolInfo => {
       return {
         ...definition,
-        annotations: { readOnlyHint: true, idempotentHint: true },
+        annotations: { ...readOnlyToolAnnotations(), idempotentHint: true },
         modelName: "Investigation",
         operation: OneUptimeOperation.Read,
         modelType: ModelType.Analytics,

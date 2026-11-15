@@ -6,7 +6,6 @@ import { JSONObject } from "Common/Types/JSON";
 export interface JSONSchemaProperty {
   type?: string;
   anyOf?: JSONSchemaProperty[];
-  additionalProperties?: boolean | JSONSchemaProperty;
   description?: string;
   enum?: Array<string | number | boolean>;
   items?: JSONSchemaProperty;

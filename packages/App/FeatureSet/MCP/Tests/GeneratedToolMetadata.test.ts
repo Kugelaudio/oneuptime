@@ -223,71 +223,13 @@ describe("Generated tool metadata", () => {
   });
 });
 
-describe("analytics query contracts", () => {
-  const tool: McpToolInfo = generateToolsForAnalyticsModel(
-    new Log(),
-    Log,
-  ).tools.find((item: McpToolInfo) => {
-    return item.name === "list_logs";
-  })!;
-  it("offers chronological sorting for DateTime64 log timestamps", () => {
-    expect(
-      tool.inputSchema.properties?.["sort"]?.properties?.["time"]?.enum,
-    ).toEqual(["ASC", "DESC"]);
-  });
-  it("describes time operators as objects with typed values", () => {
-    const time: JSONSchemaProperty | undefined =
-      tool.inputSchema.properties?.["query"]?.properties?.["time"];
-    expect(time?.anyOf).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: "object",
-          properties: expect.objectContaining({
-            _type: expect.objectContaining({ enum: ["GreaterThan"] }),
-            value: expect.objectContaining({
-              type: "string",
-              format: "date-time",
-            }),
-          }),
-        }),
-        expect.objectContaining({
-          type: "object",
-          properties: expect.objectContaining({
-            _type: expect.objectContaining({ enum: ["InBetween"] }),
-            startValue: expect.objectContaining({
-              type: "string",
-              format: "date-time",
-            }),
-            endValue: expect.objectContaining({
-              type: "string",
-              format: "date-time",
-            }),
-          }),
-        }),
-      ]),
-    );
-  });
-  it("exposes attribute map filters, including string equality and operators", () => {
-    const attributes: JSONSchemaProperty | undefined =
-      tool.inputSchema.properties?.["query"]?.properties?.["attributes"];
-    const map: JSONSchemaProperty | undefined = attributes?.anyOf?.find(
-      (option: JSONSchemaProperty) => {
-        return option.additionalProperties;
-      },
-    );
-    expect((map?.additionalProperties as JSONSchemaProperty)?.anyOf).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: "string" }),
-        expect.objectContaining({
-          type: "object",
-          properties: expect.objectContaining({
-            _type: expect.objectContaining({ enum: ["Search"] }),
-          }),
-        }),
-      ]),
-    );
-  });
-});
+/*
+ * Kugelaudio fork on 14.0.x: the fork's analytics query contract tests (sort
+ * enum on time, anyOf time operators, map filter anyOf) pinned the fork's own
+ * schema converter, which the port dropped for upstream's (zod 4, read through
+ * SchemaFields). Upstream states fields and operators through
+ * oneuptime_describe_resource and checks filters with FilterCheck.
+ */
 
 describe("complete generated catalog", () => {
   it("converts all enabled models without skipping schema failures", () => {
