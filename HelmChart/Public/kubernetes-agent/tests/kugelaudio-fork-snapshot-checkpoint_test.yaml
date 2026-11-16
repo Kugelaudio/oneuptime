@@ -1,0 +1,74 @@
+# Kugelaudio fork, review of the 14.0.110 port (ENG-2758):
+#   - snapshot redaction (fork #30) covers OpenShift's DeploymentConfig, which
+#     the OpenShift presets pull with k8sobjects/openshift: its pod template
+#     carries the same env, envFrom, command and args a Deployment's does;
+#   - the checkpoint (fork #32) and OpenShift's container fields render as ONE
+#     securityContext; two keys rendered a duplicate and the later one won;
+#   - every watched Event says its severity was decided by the agent, so
+#     ingest keeps the agent's demotions to INFO (fork #26, #27, #31).
+suite: fork snapshot redaction and checkpoint security context on the OpenShift presets
+release:
+  name: oneuptime-agent
+  namespace: oneuptime
+set:
+  clusterName: prod-us
+  oneuptime.url: https://oneuptime.example.com
+  oneuptime.apiKey: key-123
+tests:
+  - it: redacts a DeploymentConfig's containers like a Deployment's
+    template: templates/configmap-deployment.yaml
+    set:
+      preset: openshift
+      resourceSpecs.redact.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["otel-collector-config.yaml"]
+          pattern: 'delete_matching_keys\(body\["spec"\]\["template"\]\["spec"\]\["containers"\]\[0\], "\^\(env\|envFrom\|command\|args\)\$"\) where IsMap\(body\) and \([^)]*body\["kind"\] == "DeploymentConfig"\)'
+      - matchRegex:
+          path: data["otel-collector-config.yaml"]
+          pattern: 'delete_key\(body\["spec"\]\["template"\]\["spec"\], "initContainers"\) where IsMap\(body\) and \([^)]*body\["kind"\] == "DeploymentConfig"\)'
+
+  - it: gives the collector one securityContext with OpenShift's fields and the checkpoint's user
+    template: templates/daemonset.yaml
+    set:
+      preset: openshift
+      logs.checkpoint.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsUser: 0
+
+  - it: keeps OpenShift's container fields alone without the checkpoint
+    template: templates/daemonset.yaml
+    set:
+      preset: openshift
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+  - it: runs the checkpointing collector as the checkpoint's user on the standard preset
+    template: templates/daemonset.yaml
+    set:
+      logs.checkpoint.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            runAsUser: 0
+
+  - it: marks every watched Event's severity as decided by the agent
+    template: templates/configmap-deployment.yaml
+    asserts:
+      - matchRegex:
+          path: data["otel-collector-config.yaml"]
+          pattern: '- set\(attributes\["oneuptime\.kubernetes\.event\.severity_source"\], "agent"\) where IsMap\(body\) and IsMap\(body\["object"\]\) and body\["object"\]\["kind"\] == "Event"\n'

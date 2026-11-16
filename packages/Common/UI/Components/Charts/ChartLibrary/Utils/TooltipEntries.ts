@@ -49,23 +49,28 @@ function compareCategoryNames(a: string, b: string): number {
   });
 }
 
+/*
+ * Whether a payload item is a series reading that renders as a tooltip row.
+ * Two kinds of entry are not:
+ *  - `type === "none"` (recharts tooltipType) — series explicitly excluded
+ *    from tooltips.
+ *  - Array values — the anomaly band's range Area yields a [low, high] tuple
+ *    per point; it is a shaded region, not a series reading, so it must
+ *    neither render as a row nor count toward the "+N more series" overflow.
+ */
+export function isRenderableTooltipEntry<T extends SortableTooltipItem>(
+  item: T,
+): boolean {
+  return item.type !== "none" && !Array.isArray(item.value);
+}
+
 export function prepareTooltipEntries<T extends SortableTooltipItem>(
   payload: Array<T> | undefined | null,
   maxEntries: number = DEFAULT_TOOLTIP_MAX_ENTRIES,
 ): PreparedTooltipEntries<T> {
-  /*
-   * Two kinds of non-series entries are excluded:
-   *  - `type === "none"` (recharts tooltipType) — series explicitly
-   *    excluded from tooltips; every chart filtered these before this
-   *    module existed, so the filter lives here now to stay uniform.
-   *  - Array values — the anomaly band's range Area yields a
-   *    [low, high] tuple per point; it is a shaded region, not a series
-   *    reading, so it must neither render as a row nor count toward the
-   *    "+N more series" overflow.
-   */
-  const visibleEntries: Array<T> = (payload || []).filter((item: T) => {
-    return item.type !== "none" && !Array.isArray(item.value);
-  });
+  const visibleEntries: Array<T> = (payload || []).filter(
+    isRenderableTooltipEntry,
+  );
 
   /*
    * Sort tiers: live finite readings first (value desc), then

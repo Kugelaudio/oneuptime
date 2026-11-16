@@ -39,11 +39,30 @@ const SingleVariableSelector: FunctionComponent<SingleVariableSelectorProps> = (
   const [dynamicOptions, setDynamicOptions] = useState<Array<string>>([]);
   const [isLoadingOptions, setIsLoadingOptions] = useState<boolean>(false);
 
+  /*
+   * KugelAudio modification: explicit choices keep telemetry filtering while
+   * avoiding a project-wide attribute scan each time a dashboard opens.
+   */
+  const customListOptions: Array<string> = Array.from(
+    new Set(
+      (variable.customListValues || "")
+        .split(",")
+        .map((value: string) => {
+          return value.trim();
+        })
+        .filter((value: string) => {
+          return value.length > 0;
+        }),
+    ),
+  );
+  const hasConfiguredOptions: boolean = customListOptions.length > 0;
+
   useEffect(() => {
     let cancelled: boolean = false;
     if (
       variable.type === DashboardVariableType.TelemetryAttribute &&
-      variable.attributeKey
+      variable.attributeKey &&
+      !hasConfiguredOptions
     ) {
       setIsLoadingOptions(true);
       MetricUtil.getTelemetryAttributeValues({
@@ -73,12 +92,12 @@ const SingleVariableSelector: FunctionComponent<SingleVariableSelectorProps> = (
     return () => {
       cancelled = true;
     };
-  }, [variable.type, variable.attributeKey]);
+  }, [variable.type, variable.attributeKey, hasConfiguredOptions]);
 
   return (
     <DashboardVariableControl
       variable={variable}
-      dynamicOptions={dynamicOptions}
+      dynamicOptions={hasConfiguredOptions ? customListOptions : dynamicOptions}
       isLoadingOptions={isLoadingOptions}
       onVariableValueChange={props.onVariableValueChange}
     />

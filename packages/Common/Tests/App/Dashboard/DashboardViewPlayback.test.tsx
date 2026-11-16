@@ -363,7 +363,12 @@ describe("a dashboard played in a playlist", () => {
 });
 
 describe("the same dashboard on its own page, for contrast", () => {
-  test("has its toolbar, follows the viewer's pick and warms the attribute names for an editor", async () => {
+  /*
+   * Kugelaudio fork (#6): viewing a configured dashboard never starts a
+   * telemetry discovery scan; the attribute names load on entering edit mode
+   * (DashboardVariablesDiscard pins that).
+   */
+  test("has its toolbar, follows the viewer's pick and leaves the attribute names to edit mode", async () => {
     seed({ timeRange: TimeRange.PAST_ONE_DAY });
     window.localStorage.setItem(TIME_RANGE_KEY, TimeRange.PAST_TWO_DAYS);
 
@@ -373,7 +378,7 @@ describe("the same dashboard on its own page, for contrast", () => {
     expect(canvas()).toHaveAttribute("data-range", TimeRange.PAST_TWO_DAYS);
     expect(canvas()).toHaveAttribute("data-can-add-widget", "true");
     expect(canvas()).toHaveAttribute("data-playback", "false");
-    expect(getTelemetryAttributesMock).toHaveBeenCalled();
+    expect(getTelemetryAttributesMock).not.toHaveBeenCalled();
     expect(new URLSearchParams(window.location.search).get("range")).toBe("2d");
   });
 });

@@ -16,9 +16,11 @@ import { describe, it, expect, jest } from "@jest/globals";
 jest.mock("../Utils/MCPLogger");
 
 import {
+  generateAllTools,
   generateToolsForDatabaseModel,
   generateToolsForAnalyticsModel,
 } from "../Tools/ToolGenerator";
+import MCPLogger from "../Utils/MCPLogger";
 import Incident from "Common/Models/DatabaseModels/Incident";
 import Log from "Common/Models/AnalyticsModels/Log";
 import Span from "Common/Models/AnalyticsModels/Span";
@@ -218,5 +220,21 @@ describe("Generated tool metadata", () => {
         '{"startTime":"DESC"}',
       );
     });
+  });
+});
+
+/*
+ * Kugelaudio fork on 14.0.x: the fork's analytics query contract tests (sort
+ * enum on time, anyOf time operators, map filter anyOf) pinned the fork's own
+ * schema converter, which the port dropped for upstream's (zod 4, read through
+ * SchemaFields). Upstream states fields and operators through
+ * oneuptime_describe_resource and checks filters with FilterCheck.
+ */
+
+describe("complete generated catalog", () => {
+  it("converts all enabled models without skipping schema failures", () => {
+    jest.mocked(MCPLogger.error).mockClear();
+    expect(generateAllTools("advanced").length).toBeGreaterThan(100);
+    expect(MCPLogger.error).not.toHaveBeenCalled();
   });
 });

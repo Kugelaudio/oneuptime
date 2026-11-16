@@ -422,6 +422,16 @@ export interface MetricForecastOptions {
 }
 
 export interface MetricMonitorOptions {
+  /**
+   * Require a fresh, continuously sampled window; query a longer lookback
+   * so a sample at/before the window boundary can establish coverage.
+   */
+  evaluationWindow?:
+    | {
+        durationSeconds: number;
+        maxBucketGapSeconds: number;
+      }
+    | undefined;
   metricAlias?: string | undefined;
   metricAggregationType?: EvaluateOverTimeType | undefined;
   /*

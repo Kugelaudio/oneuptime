@@ -60,7 +60,7 @@ tests:
       # The logs pipeline runs no filter, whatever the rules say.
       - matchRegex:
           path: data["otel-collector-config.yaml"]
-          pattern: "\\n    logs:\\n      receivers:\\n        - k8sobjects\\n      processors:\\n        - memory_limiter\\n        - k8sattributes\\n        - resource\\n        - transform/severity\\n(?:        #[^\\n]*\\n)*        - batch\\n      exporters:\\n        - otlphttp\\n"
+          pattern: "\\n    logs:\\n      receivers:\\n        - k8sobjects\\n      processors:\\n        - memory_limiter\\n        - k8sattributes\\n        - resource\\n(?:        - transform/k8sobjects_trim\\n)?        - transform/severity\\n(?:        #[^\\n]*\\n)*        - batch\\n      exporters:\\n        - otlphttp\\n"
 
   - it: sends every Event whatever the pod log severity threshold is
     template: templates/configmap-deployment.yaml
@@ -70,7 +70,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["otel-collector-config.yaml"]
-          pattern: "\\n    logs:\\n      receivers:\\n        - k8sobjects\\n      processors:\\n        - memory_limiter\\n        - k8sattributes\\n        - resource\\n        - transform/severity\\n(?:        #[^\\n]*\\n)*        - batch\\n      exporters:\\n        - otlphttp\\n"
+          pattern: "\\n    logs:\\n      receivers:\\n        - k8sobjects\\n      processors:\\n        - memory_limiter\\n        - k8sattributes\\n        - resource\\n(?:        - transform/k8sobjects_trim\\n)?        - transform/severity\\n(?:        #[^\\n]*\\n)*        - batch\\n      exporters:\\n        - otlphttp\\n"
       - notMatchRegex:
           path: data["otel-collector-config.yaml"]
           pattern: "\\n  filter/telemetry:\\n(?:    [^\\n]*\\n)*?    logs:"
@@ -90,9 +90,15 @@ tests:
   - it: marks a watched Warning Event WARN by the Event's own type, not the watch's
     template: templates/configmap-deployment.yaml
     asserts:
+      # Kugelaudio fork (#18, #26, #31): the watched form also checks the
+      # object is an Event and skips the watch's DELETED restatement; the
+      # pulled form stays upstream's.
       - matchRegex:
           path: data["otel-collector-config.yaml"]
-          pattern: "\\n  transform/severity:\\n    error_mode: ignore\\n    log_statements:\\n      - context: log\\n        statements:\\n          - set\\(severity_text, \"INFO\"\\) where severity_text == \"\"\\n          - set\\(severity_number, SEVERITY_NUMBER_INFO\\) where severity_number == 0\\n          - set\\(severity_text, \"WARN\"\\) where IsMap\\(body\\) and IsMap\\(body\\[\"object\"\\]\\) and body\\[\"object\"\\]\\[\"type\"\\] == \"Warning\"\\n          - set\\(severity_number, SEVERITY_NUMBER_WARN\\) where IsMap\\(body\\) and IsMap\\(body\\[\"object\"\\]\\) and body\\[\"object\"\\]\\[\"type\"\\] == \"Warning\"\\n          - set\\(severity_text, \"WARN\"\\) where IsMap\\(body\\) and body\\[\"kind\"\\] == \"Event\" and body\\[\"type\"\\] == \"Warning\"\\n          - set\\(severity_number, SEVERITY_NUMBER_WARN\\) where IsMap\\(body\\) and body\\[\"kind\"\\] == \"Event\" and body\\[\"type\"\\] == \"Warning\"\\n"
+          pattern: "\\n  transform/severity:\\n    error_mode: ignore\\n    log_statements:\\n      - context: log\\n        statements:\\n          - set\\(severity_text, \"INFO\"\\) where severity_text == \"\"\\n          - set\\(severity_number, SEVERITY_NUMBER_INFO\\) where severity_number == 0\\n          - set\\(severity_text, \"WARN\"\\) where IsMap\\(body\\) and IsMap\\(body\\[\"object\"\\]\\) and body\\[\"object\"\\]\\[\"kind\"\\] == \"Event\" and body\\[\"object\"\\]\\[\"type\"\\] == \"Warning\""
+      - matchRegex:
+          path: data["otel-collector-config.yaml"]
+          pattern: "\\n          - set\\(severity_text, \"WARN\"\\) where IsMap\\(body\\) and body\\[\"kind\"\\] == \"Event\" and body\\[\"type\"\\] == \"Warning\"\\n          - set\\(severity_number, SEVERITY_NUMBER_WARN\\) where IsMap\\(body\\) and body\\[\"kind\"\\] == \"Event\" and body\\[\"type\"\\] == \"Warning\"\\n"
       # The old rule: a watched Event's body["type"] is ADDED, MODIFIED or
       # DELETED, never Warning.
       - notMatchRegex:

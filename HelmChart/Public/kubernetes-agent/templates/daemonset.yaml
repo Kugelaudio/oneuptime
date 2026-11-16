@@ -7,6 +7,7 @@
 */}}
 {{- $wantLogs := eq (include "kubernetes-agent.daemonSetLogsEnabled" .) "true" }}
 {{- $wantHostMetrics := eq (include "kubernetes-agent.hostMetricsEnabled" .) "true" }}
+{{- $checkpoint := and $wantLogs .Values.logs.checkpoint.enabled }}
 {{- if eq (include "kubernetes-agent.daemonSetEnabled" .) "true" }}
 apiVersion: apps/v1
 kind: DaemonSet
@@ -61,9 +62,19 @@ spec:
         - name: otel-collector
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- if eq (include "kubernetes-agent.openshift" .) "true" }}
+          {{- if or (eq (include "kubernetes-agent.openshift" .) "true") $checkpoint }}
           securityContext:
+            {{- if eq (include "kubernetes-agent.openshift" .) "true" }}
             {{- include "kubernetes-agent.restrictedContainerSecurityContext" . | nindent 12 }}
+            {{- end }}
+            {{- if $checkpoint }}
+            # Kugelaudio fork (#32): the collector image runs as UID 10001 and
+            # cannot write a root-owned hostPath directory. Root is confined to
+            # this container; every other mount stays read-only. One
+            # securityContext with OpenShift's fields: two keys rendered a
+            # duplicate and the later one silently won.
+            runAsUser: {{ .Values.logs.checkpoint.runAsUser }}
+            {{- end }}
           {{- end }}
           args:
             - "--config=/etc/otel/otel-collector-config.yaml"
@@ -97,6 +108,10 @@ spec:
             - name: config
               mountPath: /etc/otel
               readOnly: true
+            {{- if $checkpoint }}
+            - name: log-checkpoint
+              mountPath: {{ include "kubernetes-agent.checkpointDir" . | quote }}
+            {{- end }}
             {{- if $wantLogs }}
             - name: varlogpods
               mountPath: /var/log/pods
@@ -138,6 +153,12 @@ spec:
         - name: varlogpods
           hostPath:
             path: /var/log/pods
+        {{- end }}
+        {{- if $checkpoint }}
+        - name: log-checkpoint
+          hostPath:
+            path: {{ include "kubernetes-agent.checkpointDir" . | quote }}
+            type: DirectoryOrCreate
         {{- end }}
         {{- if $wantHostMetrics }}
         - name: host-proc

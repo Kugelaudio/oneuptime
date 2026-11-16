@@ -253,6 +253,68 @@ helm install kubernetes-agent oneuptime/kubernetes-agent \
 
 Every agent workload then reads the key from that Secret, and the chart creates no Secret of its own. Set `oneuptime.apiKey` or `oneuptime.existingSecretName`, not both: the chart refuses the two together. The Secret can come from anywhere that writes one, such as the External Secrets Operator or the Secrets Store CSI driver. On Amazon EKS, the agent is also an [EKS add-on](https://oneuptime.com/docs/telemetry/kubernetes-agent#install-as-an-amazon-eks-add-on), which reads its key this way.
 
+## Stable service names
+
+The DaemonSet collector normally derives `service.name` from the owning
+Deployment, StatefulSet or DaemonSet. When Deployment names include a release
+identifier, configure exact namespace and `app.kubernetes.io/name` mappings:
+
+```yaml
+serviceNames:
+  backend:
+    tts: kugelaudio-tts
+    normalizer: kugelaudio-normalizer
+```
+
+Mappings run after owner-name fallback on both pod logs and container metrics.
+Unlisted namespaces/applications retain the default identity, and Kubernetes
+owner, pod and cluster attributes remain available for comparing releases.
+Use the same names in application instrumentation. These mappings apply to
+DaemonSet-collected signals; they do not rename API-tailer logs, application
+OTLP spans or eBPF signals. Empty names are rejected by the values schema.
+
+This fork's chart retains the released 12.0.34 severity parser and node resource
+attribution.
+
+## Pod log transformations
+
+`logs.transformStatements` accepts OTTL log-context statements for DaemonSet pod
+logs. They run after Kubernetes metadata enrichment and before the minimum
+severity filter; the default empty list preserves the upstream pipeline.
+Scope corrections to the exact workload and message, set both `severity_number`
+and `severity_text`, and retain the original body when correcting a source's
+severity. Kubernetes events, resource specs, metrics and traces are unaffected.
+
+Validate the rendered configuration and replay representative positive and
+negative log fixtures with the configured Collector image before deployment.
+Invalid OTTL syntax fails Collector startup; runtime statement errors log a
+Collector error and retain the record (`error_mode: ignore`). API and hybrid
+Windows tailers bypass this Collector, so combining them with statements is
+rejected at Helm render time.
+
+## Kubernetes event and resource-snapshot severity
+
+`k8sobjects` records carry no severity, so the Deployment Collector's
+`transform/severity` processor stamps one. It is hardcoded; no value reaches it.
+
+- Watch-mode **Events** default to INFO. `body["object"]["type"] == "Warning"`
+  becomes WARN, and a Warning whose `body["object"]["reason"]` means the workload
+  is not running or not serving becomes ERROR.
+- Pull-mode **Pod snapshots** become ERROR when a container was OOM-killed
+  *recently*. `OOMKilled` is a container termination reason at
+  `status.containerStatuses[].lastState.terminated.reason`, never an Event
+  reason, so no reason list can see it. That field persists for the life of the
+  Pod object and the snapshot is re-emitted every `resourceSpecs.interval`, so
+  the escalation is gated on `lastState.terminated.finishedAt` being younger than
+  900s: a kill raises ERROR for the two or three pulls that follow it and then
+  stops. Keep that window larger than `resourceSpecs.interval` or no pull lands
+  inside it. Escalated records carry
+  `attributes["k8s.container.last_terminated_reason"] = "OOMKilled"`.
+
+OTTL has no list iteration, so the container index is unrolled to 6. Sidecars
+declared as restartable init containers appear in `initContainerStatuses` and are
+not covered.
+
 ## Tuning resources (CPU & memory)
 
 Every component the agent ships has its own `resources` block in [`values.yaml`](./values.yaml) with conservative defaults — small enough to fit on a modest node, large enough to handle a few hundred pods. Tune them up for larger clusters or heavier workloads.
