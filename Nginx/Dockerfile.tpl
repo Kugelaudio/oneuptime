@@ -1,12 +1,13 @@
 # Node 26 donor stage: Alpine's apk nodejs package tops out below Node 26, so
 # node + npm are copied from the official node image into the nginx image
-# below. The alpine release of this tag (3.23) MUST match the alpine release
-# of the nginx base image (nginx:1.30.2-alpine is Alpine 3.23.x) so the copied
+# below. The alpine release of this tag (3.24) MUST match the alpine release
+# of the nginx base image (nginx:1.30.7-alpine is Alpine 3.24.x) so the copied
 # node binary links against the same musl/libstdc++ ABI — when the nginx base
 # moves to a newer alpine, bump this tag in the same commit.
-FROM public.ecr.aws/docker/library/node:26-alpine3.23 AS node26
+FROM public.ecr.aws/docker/library/node:26-alpine3.24 AS node26
 
-FROM nginx:1.30.2-alpine
+# NGINX 1.30.7 fixes the HTTP/2 RCE (CVE-2026-123633/123007); 1.30.2 is vulnerable.
+FROM nginx:1.30.7-alpine
 
 
 # Per-build args (GIT_SHA / APP_VERSION / IS_ENTERPRISE_EDITION) are declared at
