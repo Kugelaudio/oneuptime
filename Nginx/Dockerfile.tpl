@@ -28,10 +28,11 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 # Upgrade OS packages (Alpine security fixes published since the base image
 # was built), then install runtime tools (bash, curl, openssl) and the NJS
 # module in a single --no-cache layer so the apk index data doesn't persist in
-# the image. libstdc++ (pulls in libgcc) is required by the node binary and the
+# the image. libstdc++ (pulls in libgcc) and libatomic (the node:26-alpine3.24
+# binary links it) are required by the node binary and the
 # isolated-vm prebuilt C++ addon copied/installed below.
 RUN apk upgrade --no-cache \
-    && apk add --no-cache bash curl openssl nginx-module-njs libstdc++
+    && apk add --no-cache bash curl openssl nginx-module-njs libstdc++ libatomic
 
 # Install Node 26 + npm from the donor stage above (apk has no Node 26
 # package). COPY --from resolves per target platform, so multi-arch builds
