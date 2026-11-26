@@ -544,18 +544,34 @@ export function isKubernetesWarningEvent(
 }
 
 /*
+ * Kugelaudio fork: the attribute the fork's kubernetes-agent sets, to
+ * "agent", on every watched Event whose severity its transform/severity
+ * rules decided - INFO for the Warnings it demotes (a node's boot-time
+ * InvalidDiskCapacity, a watch's DELETED restatement) included.
+ */
+export const KUBERNETES_EVENT_SEVERITY_SOURCE_ATTRIBUTE: string =
+  "oneuptime.kubernetes.event.severity_source";
+
+/*
  * The SeverityNumber an Event's record is stored with. A Warning is raised
  * to WARN - the agent's own rule stamps every Event INFO, and a collector's
  * own may say nothing - but never lowered: a pipeline that already made it
  * an ERROR keeps it. Any other Event is INFO when nothing said otherwise.
+ * A severity the agent says it decided (KUBERNETES_EVENT_SEVERITY_SOURCE_ATTRIBUTE)
+ * is kept as it is, so its demotions to INFO are not undone here.
  */
 export function getKubernetesEventSeverityNumber(data: {
   eventType: string;
   severityNumber: number;
+  severityDecidedByAgent?: boolean | undefined;
 }): number {
   const current: number = Number.isFinite(data.severityNumber)
     ? data.severityNumber
     : 0;
+
+  if (data.severityDecidedByAgent && current > 0) {
+    return current;
+  }
 
   if (isKubernetesWarningEvent({ type: data.eventType })) {
     return Math.max(current, KUBERNETES_WARNING_EVENT_SEVERITY_NUMBER);

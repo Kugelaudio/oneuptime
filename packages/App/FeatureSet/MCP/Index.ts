@@ -34,7 +34,9 @@ const MCPFeatureSet: FeatureSet = {
     initializeMCPServer();
 
     // Generate tools (tool handlers are registered per-session in RouteHandler)
-    const tools: McpToolInfo[] = generateAllTools();
+    const tools: McpToolInfo[] = generateAllTools(
+      process.env["MCP_TOOL_PROFILE"] || "investigation",
+    );
     logger.info(`MCP: Generated ${tools.length} tools`, {
       featureSet: "MCP",
     } as LogAttributes);

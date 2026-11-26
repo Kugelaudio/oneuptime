@@ -112,6 +112,7 @@ import {
   getKubernetesEventLogAttributes,
   getKubernetesEventLogTime,
   getKubernetesEventSeverityNumber,
+  KUBERNETES_EVENT_SEVERITY_SOURCE_ATTRIBUTE,
   isKubernetesEventLogRecord,
   parseKubernetesEventFromLogBody,
 } from "Common/Types/Kubernetes/KubernetesEvent";
@@ -2153,6 +2154,9 @@ export default class OtelLogsIngestService extends OtelIngestBaseService {
       severityNumber: getKubernetesEventSeverityNumber({
         eventType: kubernetesEvent.type,
         severityNumber: data.severityNumber,
+        severityDecidedByAgent:
+          data.attributes[KUBERNETES_EVENT_SEVERITY_SOURCE_ATTRIBUTE] ===
+          "agent",
       }),
       time: data.hasRecordTime
         ? null

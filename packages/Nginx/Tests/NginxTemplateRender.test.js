@@ -689,7 +689,7 @@ test(
  * paths are moved into its own folder). To run it:
  *
  *   docker run --rm -v <repo>:/repo -w /repo/packages/Nginx \
- *     nginx:1.30.5-alpine3.24 sh -c \
+ *     nginx:1.30.7-alpine3.24 sh -c \
  *     'rm -f /var/log/nginx/*; apk add -q nodejs openssl; node --test Tests/'
  */
 

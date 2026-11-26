@@ -564,6 +564,88 @@ data:
               - set(body["spec"]["tls"]["key"], "REDACTED") where IsMap(body) and body["kind"] == "Route" and body["spec"]["tls"]["key"] != nil
       {{- end }}
 
+      # Resource-spec pulls and event watches carry the full object, including
+      # metadata.managedFields: the API server's per-field ownership ledger,
+      # often half the record, which nothing downstream reads (the dashboard's
+      # YAML tab strips it before rendering). Drop it before export. Pull
+      # records are the object itself; watch records wrap it in body["object"].
+      transform/k8sobjects_trim:
+        error_mode: ignore
+        log_statements:
+          - context: log
+            statements:
+              - delete_key(body["metadata"], "managedFields") where IsMap(body) and IsMap(body["metadata"])
+              - delete_key(body["object"]["metadata"], "managedFields") where IsMap(body) and IsMap(body["object"]) and IsMap(body["object"]["metadata"])
+              {{- if (.Values.resourceSpecs.redact | default dict).enabled }}
+              {{- /* Pull snapshots carry each container's env (DSNs, keys), envFrom,
+                     command and args (job transcripts, tokens) and the
+                     last-applied-configuration annotation, which repeats all of
+                     it. None of that is read downstream; names, images,
+                     resources, status and lastState (the OOM rule) stay.
+                     OTTL cannot iterate a list, so container indexes are
+                     unrolled like the OOM rule below. An object with more
+                     containers than the unroll covers loses its whole container
+                     list instead (fail closed): nothing secret is exported
+                     because a pod grew a sidecar. Kind guards come first so a
+                     path that does not exist for that kind is never read.
+                     OpenShift's DeploymentConfig (pulled by k8sobjects/openshift
+                     on the OpenShift presets) carries the same pod template at
+                     spec.template.spec. */}}
+              {{- $redact := .Values.resourceSpecs.redact }}
+              {{- $lists := dict "containers" ($redact.maxContainers | default 8 | int) "initContainers" ($redact.maxInitContainers | default 4 | int) "ephemeralContainers" ($redact.maxEphemeralContainers | default 2 | int) }}
+              {{- $specs := list (list "body[\"kind\"] == \"Pod\"" "body[\"spec\"]") (list "(body[\"kind\"] == \"Deployment\" or body[\"kind\"] == \"StatefulSet\" or body[\"kind\"] == \"DaemonSet\" or body[\"kind\"] == \"Job\" or body[\"kind\"] == \"ReplicaSet\" or body[\"kind\"] == \"DeploymentConfig\")" "body[\"spec\"][\"template\"][\"spec\"]") (list "body[\"kind\"] == \"CronJob\"" "body[\"spec\"][\"jobTemplate\"][\"spec\"][\"template\"][\"spec\"]") }}
+              {{- range $spec := $specs }}
+              {{- $kind := index $spec 0 }}{{- $path := index $spec 1 }}
+              {{- range $list := keys $lists | sortAlpha }}
+              {{- $max := get $lists $list }}
+              {{- range $i := until $max }}
+              - 'delete_matching_keys({{ $path }}["{{ $list }}"][{{ $i }}], "^(env|envFrom|command|args)$") where IsMap(body) and {{ $kind }} and {{ $path }}["{{ $list }}"] != nil and Len({{ $path }}["{{ $list }}"]) > {{ $i }}'
+              {{- end }}
+              - 'delete_key({{ $path }}, "{{ $list }}") where IsMap(body) and {{ $kind }} and {{ $path }}["{{ $list }}"] != nil and Len({{ $path }}["{{ $list }}"]) > {{ $max }}'
+              {{- end }}
+              {{- end }}
+              - delete_key(body["metadata"]["annotations"], "kubectl.kubernetes.io/last-applied-configuration") where IsMap(body) and IsMap(body["metadata"]) and IsMap(body["metadata"]["annotations"])
+              {{- end }}
+
+      {{- $evt := .Values.kubernetesEvents | default dict }}
+      {{- if or $evt.dropWatchDeletes $evt.dropNormalInNamespaces $evt.dropConditions }}
+      # Event volume that carries no new information. A watch DELETED record is
+      # the API server expiring an Event (1 h TTL) that was already ingested as
+      # ADDED/MODIFIED. Normal Events in a namespace of short-lived pods (CI
+      # runners: Scheduled/Pulling/Pulled/Created/Started/Killing for every
+      # pod) are routine there; their Warning Events stay. dropConditions adds
+      # cluster-specific known races (one OTTL condition each on the Event).
+      filter/k8sobjects_noise:
+        error_mode: ignore
+        logs:
+          log_record:
+            {{- if $evt.dropWatchDeletes }}
+            - 'IsMap(body) and body["type"] == "DELETED" and IsMap(body["object"]) and body["object"]["kind"] == "Event"'
+            {{- end }}
+            {{- range $evt.dropNormalInNamespaces }}
+            - 'IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Normal" and IsMap(body["object"]["regarding"]) and body["object"]["regarding"]["namespace"] == {{ . | quote }}'
+            {{- end }}
+            {{- /* Cluster-specific known races, each an OTTL condition on the Event
+                   body, always ANDed with "this record is an Event". */}}
+            {{- range $evt.dropConditions }}
+            - {{ printf "IsMap(body) and IsMap(body[\"object\"]) and body[\"object\"][\"kind\"] == \"Event\" and (%s)" . | squote }}
+            {{- end }}
+      {{- end }}
+
+      {{- if $evt.transformStatements }}
+      # Opt-in last step of the Events pipeline (after severity and noise
+      # filtering, so a rewritten body never feeds a severity rule): OTTL
+      # statements in the log context that reshape a watch record, e.g. into a
+      # one-line body with the Event's fields as attributes. Each statement
+      # carries its own Event guard; records it does not match pass unchanged.
+      transform/k8sobjects_events:
+        error_mode: ignore
+        log_statements:
+          - context: log
+            statements:
+              {{- toYaml $evt.transformStatements | nindent 14 }}
+      {{- end }}
+
       # The k8sobjects receiver emits LogRecords without a severity, so
       # Kubernetes events and resource snapshots arrive at OneUptime with
       # severity_number=0 and render as "Unspecified" on the Logs page.
@@ -587,10 +669,99 @@ data:
             statements:
               - set(severity_text, "INFO") where severity_text == ""
               - set(severity_number, SEVERITY_NUMBER_INFO) where severity_number == 0
-              - set(severity_text, "WARN") where IsMap(body) and IsMap(body["object"]) and body["object"]["type"] == "Warning"
-              - set(severity_number, SEVERITY_NUMBER_WARN) where IsMap(body) and IsMap(body["object"]) and body["object"]["type"] == "Warning"
+              {{- /* The event's own type lives at body["object"]["type"].
+                     body["type"] is the k8sobjects WATCH VERB -- ADDED, MODIFIED,
+                     DELETED -- so matching it never fires and every Warning Event
+                     kept the INFO default set two lines above. That silently hid
+                     FailedScheduling, Evicted, BackOff and friends from the Error
+                     and Warning pages on every cluster.
+                     The body["object"]["kind"] == "Event" guard keeps resource-spec
+                     PULL records out: their body is the object itself, with kind
+                     Pod/ReplicaSet/Node, and several carry a "type" key inside
+                     status.conditions. */}}
+              - set(severity_text, "WARN") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and body["type"] != "DELETED"
+              - set(severity_number, SEVERITY_NUMBER_WARN) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and body["type"] != "DELETED"
+              {{- /* A Warning Event is WARN. Only four reasons escalate to ERROR,
+                     because each means a workload stopped or a node is gone:
+                     BackOff (a container keeps crashing), Evicted, OOMKilling (the
+                     kubelet's OOM event; OOMKilled is a container termination
+                     reason and has no Event, see the snapshot rule below) and
+                     NodeNotReady.
+                     Every other Warning reason (FailedScheduling, Failed, Unhealthy,
+                     FailedMount, FailedAttachVolume, FailedCreatePodSandBox, ...)
+                     is a step the kubelet or scheduler retries, and one stuck pod
+                     re-emits it every few seconds: 531 of the 710 Event rows on the
+                     Error page were CI runner FailedScheduling (2026-10-29
+                     22:00-23:00Z). Those stay WARN. When the retry never succeeds,
+                     the container's restarts surface as BackOff, which escalates.
+
+                     body["type"] != "DELETED": the watch reports an Event a second
+                     time when its TTL (1h) expires and the API server deletes it.
+                     That record restates an occurrence already ingested as ADDED or
+                     MODIFIED, so it keeps the INFO default instead of counting the
+                     same failure again an hour later (112 of 710 Event rows on the
+                     Error page, 2026-10-29 22:00-23:00Z). */}}
+              - set(severity_text, "ERROR") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and body["type"] != "DELETED" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(BackOff|Evicted|OOMKilling|NodeNotReady)$")
+              - set(severity_number, SEVERITY_NUMBER_ERROR) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and body["type"] != "DELETED" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(BackOff|Evicted|OOMKilling|NodeNotReady)$")
+              {{- /* Two kubelet Warnings every node prints while it boots, kept at INFO:
+                     - InvalidDiskCapacity "invalid capacity 0 on image filesystem":
+                       the kubelet's first image-filesystem stats pass runs before the
+                       runtime reports a capacity. Once per node, ~15 s after it
+                       registers (16 nodes, 2026-10-29 22:00-23:00Z). A real disk
+                       problem reports FreeDiskSpaceFailed, ImageGCFailed or
+                       DiskPressure instead.
+                     - NetworkNotReady on a pod: a DaemonSet pod (tolerations
+                       `operator: Exists`) lands on a node before its CNI starts and
+                       waits; it started within 20 s on every new staging node that
+                       hour. A CNI that breaks on a running node takes the node
+                       NotReady, and NodeNotReady still escalates. */}}
+              - set(severity_text, "INFO") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(InvalidDiskCapacity|NetworkNotReady)$")
+              - set(severity_number, SEVERITY_NUMBER_INFO) where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event" and body["object"]["type"] == "Warning" and IsString(body["object"]["reason"]) and IsMatch(body["object"]["reason"], "^(InvalidDiskCapacity|NetworkNotReady)$")
+              - set(severity_text, "WARN") where IsString(body) and IsMatch(body, "\"type\"\\s*:\\s*\"Warning\"")
+              - set(severity_number, SEVERITY_NUMBER_WARN) where IsString(body) and IsMatch(body, "\"type\"\\s*:\\s*\"Warning\"")
               - set(severity_text, "WARN") where IsMap(body) and body["kind"] == "Event" and body["type"] == "Warning"
               - set(severity_number, SEVERITY_NUMBER_WARN) where IsMap(body) and body["kind"] == "Event" and body["type"] == "Warning"
+              {{- /* Container OOM kills reach this pipeline only as PULL-mode Pod
+                     snapshots. `OOMKilled` is a container TERMINATION reason at
+                     status.containerStatuses[].lastState.terminated.reason, never
+                     an Event reason, so the list above cannot see it. Measured
+                     across all first-party clusters over 7 days: 0 records
+                     containing "OOMKilling" against 3,498 containing "OOMKilled",
+                     and the Events a real OOM did emit were Normal Pulled/Created/
+                     Started -- nothing that escalates.
+
+                     lastState PERSISTS for the life of the Pod object and
+                     k8sobjects re-emits the snapshot every resourceSpecs.interval,
+                     so an unguarded match would re-raise ERROR for a long-dead OOM
+                     on every pull, forever (one 2026-09-07 kill was still being
+                     re-emitted 288 times a day two days later). The freshness
+                     window is what bounds it: escalate only while the kill is
+                     younger than 900s, i.e. for the two or three pulls that follow
+                     it. That window MUST stay larger than resourceSpecs.interval
+                     (default 300s) or no pull lands inside it and the rule becomes
+                     a silent no-op.
+
+                     OTTL cannot iterate a list, so the container index is unrolled.
+                     6 covers the widest containerStatuses seen in 460 live pod
+                     snapshots (5). Sidecars declared as restartable init containers
+                     live in initContainerStatuses and are NOT covered.
+
+                     The `!= nil` guard matters: Len(nil) raises, and error_mode
+                     ignore turns every raise into a collector WARN line that the
+                     DaemonSet then scrapes back in as an Error row. Verified 0
+                     ignored-error lines over pods with no containerStatuses and
+                     pods with no status block at all. */}}
+              {{- range $index := until 6 }}
+              - set(attributes["k8s.container.last_terminated_reason"], "OOMKilled") where IsMap(body) and body["kind"] == "Pod" and body["status"]["containerStatuses"] != nil and Len(body["status"]["containerStatuses"]) > {{ $index }} and body["status"]["containerStatuses"][{{ $index }}]["lastState"]["terminated"]["reason"] == "OOMKilled" and UnixSeconds(Now()) - UnixSeconds(Time(body["status"]["containerStatuses"][{{ $index }}]["lastState"]["terminated"]["finishedAt"], "%Y-%m-%dT%H:%M:%SZ")) < {{ $.Values.resourceSpecs.oomFreshnessSeconds | default 900 | int }}
+              {{- end }}
+              - set(severity_text, "ERROR") where attributes["k8s.container.last_terminated_reason"] == "OOMKilled"
+              - set(severity_number, SEVERITY_NUMBER_ERROR) where attributes["k8s.container.last_terminated_reason"] == "OOMKilled"
+              {{- /* Kugelaudio fork: the rules above are the severity a watched Event is
+                     stored with, demotions to INFO included (#26, #27, #31). Ingest raises
+                     every Warning Event to WARN for agents that send all Events as INFO;
+                     this marker tells it the agent already decided, so the demotions hold
+                     (KubernetesEvent.ts, KUBERNETES_EVENT_SEVERITY_SOURCE_ATTRIBUTE). */}}
+              - set(attributes["oneuptime.kubernetes.event.severity_source"], "agent") where IsMap(body) and IsMap(body["object"]) and body["object"]["kind"] == "Event"
 
       # Container restarts as OneUptime's CrashLoopBackOff Detection template
       # counts them: k8s.container.restarts.increase, the times a container
@@ -928,7 +1099,15 @@ data:
             {{- if eq (include "kubernetes-agent.openshift" .) "true" }}
             - resourcedetection/openshift
             {{- end }}
+            - transform/k8sobjects_trim
             - transform/severity
+            {{- $evt := .Values.kubernetesEvents | default dict }}
+            {{- if or $evt.dropWatchDeletes $evt.dropNormalInNamespaces $evt.dropConditions }}
+            - filter/k8sobjects_noise
+            {{- end }}
+            {{- if $evt.transformStatements }}
+            - transform/k8sobjects_events
+            {{- end }}
             # Intentionally NOT filtered by filters.logs.minSeverity — see the
             # note on $signals above. Kubernetes events are a low-volume,
             # high-value signal, and every one of them would be dropped.

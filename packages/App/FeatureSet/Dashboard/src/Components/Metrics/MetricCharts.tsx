@@ -132,6 +132,8 @@ export interface ComponentProps {
   metricResults: Array<AggregatedResult>;
   metricTypes: Array<MetricType>;
   hideCard?: boolean | undefined;
+  compact?: boolean | undefined;
+  chartHeightInPx?: number | undefined;
   chartCssClass?: string | undefined;
   /*
    * Stretch each chart's value axis to take its warning and critical lines
@@ -3602,6 +3604,8 @@ const MetricCharts: FunctionComponent<ComponentProps> = (
     <>
       <ChartGroup
         charts={getCharts()}
+        compact={props.compact}
+        chartHeightInPx={props.chartHeightInPx}
         hideCard={props.hideCard}
         chartCssClass={props.chartCssClass}
         syncId={props.chartSyncId}

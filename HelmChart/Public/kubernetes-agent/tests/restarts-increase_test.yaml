@@ -133,10 +133,13 @@ tests:
           path: data["otel-collector-config.yaml"]
           pattern: "set\\(attributes\\[\"container\\.id\"\\]|key: container\\.id\\b"
       # Nor any attribute of a container's own run, which changes with every
-      # restart: the receiver's last terminated reason stays off.
+      # restart: the receiver's last terminated reason stays off. (Kugelaudio
+      # fork: transform/severity sets k8s.container.last_terminated_reason on
+      # Pod snapshot LOG records to escalate a recent OOM kill; that is no
+      # metric resource attribute, so only the receiver's own one is checked.)
       - notMatchRegex:
           path: data["otel-collector-config.yaml"]
-          pattern: "last_terminated_reason|k8s\\.container\\.restart_count"
+          pattern: "k8s\\.container\\.status\\.last_terminated_reason|k8s\\.container\\.restart_count"
 
   - it: keeps k8s.container.restarts alone in that pipeline's copy of what k8s_cluster sends
     asserts:

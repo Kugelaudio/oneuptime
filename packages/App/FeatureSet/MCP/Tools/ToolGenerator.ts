@@ -26,6 +26,7 @@ import {
 import {
   DESCRIBE_RESOURCE_TOOL_NAME,
   generateHelperTools,
+  isHelperTool,
 } from "./HelperTools";
 import { generatePublicStatusPageTools } from "./PublicStatusPageTools";
 import {
@@ -33,6 +34,11 @@ import {
   writeToolAnnotations,
 } from "./ToolAnnotations";
 import { generateWorkflowTools } from "./WorkflowTools";
+import { generateRequestTools, isRequestTool } from "./RequestTools";
+import {
+  generateInvestigationTools,
+  isInvestigationTool,
+} from "./InvestigationTools";
 import {
   getSelectableFieldsForModel,
   SelectableFieldsInfo,
@@ -207,7 +213,15 @@ export function applyWritePolicy(
 /**
  * Generate all MCP tools for all OneUptime models
  */
-export function generateAllTools(): McpToolInfo[] {
+/*
+ * Kugelaudio fork: the server (Index.ts) passes MCP_TOOL_PROFILE, default
+ * "investigation"; called without a profile this builds the full catalog, as
+ * upstream's own tests and tooling expect.
+ */
+export function generateAllTools(profile: string = "advanced"): McpToolInfo[] {
+  if (!["investigation", "advanced"].includes(profile)) {
+    throw new Error("MCP_TOOL_PROFILE must be investigation or advanced.");
+  }
   const allTools: McpToolInfo[] = [];
 
   // Generate tools for Database Models
@@ -225,6 +239,9 @@ export function generateAllTools(): McpToolInfo[] {
   // Generate helper tools for discovery and guidance
   const helperTools: McpToolInfo[] = generateHelperTools();
   allTools.push(...helperTools);
+
+  // Kugelaudio fork: the read-only investigation catalog (#14, #15).
+  allTools.push(...generateRequestTools(), ...generateInvestigationTools());
 
   // Generate public status page tools (no API key required)
   const publicStatusPageTools: McpToolInfo[] = generatePublicStatusPageTools();
@@ -247,8 +264,25 @@ export function generateAllTools(): McpToolInfo[] {
     uniqueTools.push(tool);
   }
 
+  /*
+   * Kugelaudio fork: the default "investigation" profile exposes only the
+   * read-only investigation catalog, whoami and the help/list helpers;
+   * MCP_TOOL_PROFILE=advanced keeps the generated CRUD catalog.
+   */
+  const visibleTools: McpToolInfo[] =
+    profile === "advanced"
+      ? uniqueTools
+      : uniqueTools.filter((tool: McpToolInfo): boolean => {
+          return (
+            isRequestTool(tool.name) ||
+            isInvestigationTool(tool.name) ||
+            tool.name === "oneuptime_whoami" ||
+            (isHelperTool(tool.name) &&
+              tool.name !== DESCRIBE_RESOURCE_TOOL_NAME)
+          );
+        });
   const policedTools: McpToolInfo[] = applyWritePolicy(
-    uniqueTools,
+    visibleTools,
     WRITE_POLICY,
   );
 
@@ -546,10 +580,15 @@ function createListTool(
         query: buildQueryProperty(),
         select: buildSelectProperty(selectInfo),
         skip: {
-          type: "number",
+          type: "integer",
+          minimum: 0,
+          default: 0,
         },
         limit: {
-          type: "number",
+          type: "integer",
+          minimum: 1,
+          maximum: LIST_MAX_LIMIT,
+          default: LIST_DEFAULT_LIMIT,
           description: `Default: ${LIST_DEFAULT_LIMIT}, maximum: ${LIST_MAX_LIMIT}.`,
         },
         sort: buildSortProperty("createdAt"),
@@ -687,10 +726,15 @@ function createAnalyticsListTool(
             "Field names to return. Select only what you need: telemetry rows can be large.",
         },
         skip: {
-          type: "number",
+          type: "integer",
+          minimum: 0,
+          default: 0,
         },
         limit: {
-          type: "number",
+          type: "integer",
+          minimum: 1,
+          maximum: LIST_MAX_LIMIT,
+          default: LIST_DEFAULT_LIMIT,
           description: `Default: ${LIST_DEFAULT_LIMIT}, maximum: ${LIST_MAX_LIMIT}.`,
         },
         sort: buildSortProperty(timeColumn),

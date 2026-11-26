@@ -212,6 +212,8 @@ function renderWidget(
 
 interface CapturedChartProps {
   metricViewData: MetricViewData;
+  compact?: boolean;
+  chartHeightInPx?: number;
   metricResults?: Array<Record<string, unknown>> | undefined;
   onTimeRangeSelect?: ((startTime: Date, endTime: Date) => void) | undefined;
   enableSeriesActions?: boolean | undefined;
@@ -262,6 +264,18 @@ describe("dashboard chart widget drag-to-zoom (standalone fallback)", () => {
     expect(baseProps.onDashboardTimeRangeReset).toBeUndefined();
   });
 
+  test("reserves a finite plot height inside the tile and uses one header", async () => {
+    renderWidget();
+    await waitFor(() => {
+      return expect(screen.getByTestId("metric-charts")).toBeInTheDocument();
+    });
+    expect(lastChartProps().compact).toBe(true);
+    expect(lastChartProps().chartHeightInPx).toBe(200);
+    await act(async () => {
+      return lastChartProps().onTimeRangeSelect?.(ZOOM_START, ZOOM_END);
+    });
+    expect(lastChartProps().chartHeightInPx).toBe(165);
+  });
   test("drag-selecting a window refetches THIS widget for that window and shows the zoom bar", async () => {
     renderWidget();
 

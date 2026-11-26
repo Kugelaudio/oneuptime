@@ -108,6 +108,15 @@ oneuptime:
 # clusters installed without it are silently merged into one estate.
 clusterName: ""
 
+# Stable service names for DaemonSet-collected pod logs and container metrics.
+# Exact namespace -> app.kubernetes.io/name -> service.name mappings. Unlisted
+# workloads retain owner-derived names. Deployment/pod/cluster attributes remain
+# unchanged, so releases can be compared within one service.
+# serviceNames:
+#   backend:
+#     tts: kugelaudio-tts
+serviceNames: {}
+
 # Namespace filters — scoped rules for deciding which namespaces are observed.
 #
 # Each rule has an action (`include` or `exclude`), one or more namespace
@@ -486,6 +495,35 @@ controlPlane:
 #   disabled — no log collection at all (use if you ship logs another way).
 logs:
   enabled: true
+  # Optional OTTL log-context statements for DaemonSet pod logs, after Kubernetes
+  # metadata enrichment and before filters.logs.minSeverity. Bodies and metadata
+  # are unchanged unless a statement explicitly edits them. Empty preserves the
+  # upstream pipeline. API/Windows log tailers bypass this Collector and cannot
+  # use these statements; configuring both is rejected rather than ignored.
+  # Validate statements with the configured Collector image before deployment.
+  transformStatements: []
+  # Where the DaemonSet's filelog receivers begin a file they have no offset for:
+  # "end" (default: lines already in a file when the collector starts are never
+  # read) or "beginning". Per the filelog receiver, a file that appears after the
+  # collector's first poll is always read from its first byte, and when stored
+  # offsets exist `start_at` is ignored; it decides only files present on the
+  # first poll of a collector with NO stored offsets. "beginning" therefore
+  # requires `checkpoint.enabled` (rendering fails otherwise): without persisted
+  # offsets every restart would re-read every pod log file and duplicate it. On a
+  # node that already has pod logs, the first start with "beginning" ingests all
+  # of them from byte 0; roll out `checkpoint.enabled` with "end" first so each
+  # node stores its offsets, then switch to "beginning" (a no-op on those nodes;
+  # it only takes effect on a node whose store is empty, i.e. a new node).
+  startAt: end
+  # Persist the filelog offsets (file_storage extension on a node hostPath), so a
+  # restarted collector resumes where it stopped and reads every file created
+  # during the restart from its first byte. Runs the collector as `runAsUser`
+  # (root by default) so it can write the hostPath directory.
+  checkpoint:
+    enabled: false
+    # Base directory; each release stores under <hostPath>/<namespace>/<fullname>.
+    hostPath: /var/lib/otelcol-kubernetes-agent
+    runAsUser: 0
   # Leave empty to let the `preset` choose: "standard" -> daemonset,
   # "gke-autopilot" / "eks-fargate" / "openshift-restricted" -> api. Override
   # explicitly if you know what you want: "daemonset" | "api" | "disabled".
@@ -566,6 +604,24 @@ logs:
     namespaces:
       - openstack
 
+# Kubernetes Event volume controls (Deployment collector, Events only).
+kubernetesEvents:
+  # Drop the watch's DELETED record of an Event: the API server expiring it
+  # (1 h TTL), which restates an occurrence already ingested.
+  dropWatchDeletes: false
+  # Namespaces whose Normal Events are dropped (Warning Events are kept),
+  # e.g. CI runner namespaces where every pod emits a Scheduled/Pulled/
+  # Created/Started/Killing series.
+  dropNormalInNamespaces: []
+  # Extra OTTL conditions on the Event body (body["object"]...), each ANDed
+  # with a kind == "Event" guard, for known races a cluster accepts.
+  dropConditions: []
+  # Opt-in OTTL statements (log context) run last on Event and snapshot records,
+  # after severity and the noise filter, to reshape a record: for example a
+  # one-line body and the Event's fields as attributes. Each statement must
+  # guard on body["object"]["kind"] == "Event" itself. Empty: nothing runs.
+  transformStatements: []
+
 # Resource spec collection — pulls full K8s resource objects (pods, nodes,
 # deployments, etc.) for displaying labels, annotations, env vars, status,
 # and other details in the dashboard. On the OpenShift presets it also pulls
@@ -577,6 +633,17 @@ resourceSpecs:
   enabled: true
   interval: 300s  # How often to pull full resource specs (default: 5 minutes)
   vpa: false  # Enable VPA collection (requires VPA CRDs installed in the cluster)
+  # Window (s) in which a pulled Pod snapshot's OOMKilled lastState is raised as
+  # ERROR. Keep it at least twice the interval so two pulls land inside it.
+  oomFreshnessSeconds: 900
+  # Strip container env/envFrom/command/args and the last-applied-configuration
+  # annotation from snapshots before export. Container indexes are unrolled up
+  # to these counts; an object with more loses that whole container list.
+  redact:
+    enabled: false
+    maxContainers: 8
+    maxInitContainers: 4
+    maxEphemeralContainers: 2
 
 # Collection intervals
 collectionInterval: 30s

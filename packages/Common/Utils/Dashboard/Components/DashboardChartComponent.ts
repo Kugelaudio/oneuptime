@@ -140,6 +140,16 @@ export default class DashboardChartComponentUtil extends DashboardBaseComponentU
       section: DisplaySection,
     });
 
+    componentArguments.push({
+      name: "Hide event markers",
+      description:
+        "Hide the deploy, incident and alert markers. They are project-wide, not filtered by this chart's query, so per-cluster charts usually hide them.",
+      required: false,
+      type: ComponentInputType.Boolean,
+      id: "hideEventMarkers",
+      section: DisplaySection,
+    });
+
     return componentArguments;
   }
 }
