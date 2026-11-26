@@ -26,9 +26,8 @@ import IncidentStateTimeline from "../../Models/DatabaseModels/IncidentStateTime
 import IncidentMember from "../../Models/DatabaseModels/IncidentMember";
 import IncidentRole from "../../Models/DatabaseModels/IncidentRole";
 import { IsBillingEnabled } from "../EnvironmentConfig";
-import ProjectScopedReferenceValidator, {
-  resolveReferenceId,
-} from "../Utils/Database/ProjectScopedReferenceValidator";
+import ProjectScopedReferenceValidator from "../Utils/Database/ProjectScopedReferenceValidator";
+import StateTimelineCreate from "../Utils/Database/StateTimelineCreate";
 import logger, { LogAttributes } from "../Utils/Logger";
 import IncidentFeedService from "./IncidentFeedService";
 import AIIncidentPostmortemRunner from "../Utils/AI/SRE/IncidentPostmortemRunner";
@@ -79,6 +78,23 @@ export class Service extends DatabaseService<IncidentStateTimeline> {
     let mutex: SemaphoreMutex | null = null;
 
     try {
+      StateTimelineCreate.canonicalize({
+        createBy,
+        subject: "incident state timeline",
+        references: [
+          {
+            modelName: "Incident",
+            idColumn: "incidentId",
+            relationColumn: "incident",
+          },
+          {
+            modelName: "Incident State",
+            idColumn: "incidentStateId",
+            relationColumn: "incidentState",
+          },
+        ],
+      });
+
       if (!createBy.data.incidentId) {
         throw new BadDataException("incidentId is null");
       }
@@ -126,7 +142,7 @@ export class Service extends DatabaseService<IncidentStateTimeline> {
       }
 
       const incidentStateId: ObjectID | undefined | null =
-        createBy.data.incidentStateId || createBy.data.incidentState?.id;
+        createBy.data.incidentStateId;
 
       if (!incidentStateId) {
         throw new BadDataException("incidentStateId is null");
@@ -148,23 +164,26 @@ export class Service extends DatabaseService<IncidentStateTimeline> {
             id: incidentStateId,
             service: IncidentStateService,
           },
-          /*
-           * The parent too: the queries and writes below run as root and are
-           * keyed on it alone. The relation is checked beside the id column
-           * because either one can set the saved row's incident.
-           */
-          {
-            modelName: "Incident",
-            id: createBy.data.incidentId,
-            service: IncidentService,
-          },
-          {
-            modelName: "Incident",
-            id: resolveReferenceId(createBy.data.incident),
-            service: IncidentService,
-          },
         ],
       });
+
+      /*
+       * The queries and writes below run as root and are keyed on the parent
+       * alone. The lookup is filtered by project, so a missing parent and
+       * another project's parent get the same answer.
+       */
+      const isIncidentAvailable: boolean =
+        await ProjectScopedReferenceValidator.isUsableInProject({
+          projectId: createBy.data.projectId,
+          id: createBy.data.incidentId,
+          service: IncidentService,
+        });
+
+      if (!isIncidentAvailable) {
+        throw new BadDataException(
+          `This incident state timeline references an Incident that is not available in this project: "${createBy.data.incidentId}".`,
+        );
+      }
 
       // Execute queries for before and after states in parallel for better performance
       const [stateBeforeThis, stateAfterThis] = await Promise.all([

@@ -20,9 +20,8 @@ import { JSONObject } from "../../Types/JSON";
 import AlertInternalNote from "../../Models/DatabaseModels/AlertInternalNote";
 import AlertInternalNoteService from "./AlertInternalNoteService";
 import CaptureSpan from "../Utils/Telemetry/CaptureSpan";
-import ProjectScopedReferenceValidator, {
-  resolveReferenceId,
-} from "../Utils/Database/ProjectScopedReferenceValidator";
+import ProjectScopedReferenceValidator from "../Utils/Database/ProjectScopedReferenceValidator";
+import StateTimelineCreate from "../Utils/Database/StateTimelineCreate";
 import logger, { LogAttributes } from "../Utils/Logger";
 import AlertFeedService from "./AlertFeedService";
 import { AlertFeedEventType } from "../../Models/DatabaseModels/AlertFeed";
@@ -66,6 +65,23 @@ export class Service extends DatabaseService<AlertStateTimeline> {
   protected override async onBeforeCreate(
     createBy: CreateBy<AlertStateTimeline>,
   ): Promise<OnCreate<AlertStateTimeline>> {
+    StateTimelineCreate.canonicalize({
+      createBy,
+      subject: "alert state timeline",
+      references: [
+        {
+          modelName: "Alert",
+          idColumn: "alertId",
+          relationColumn: "alert",
+        },
+        {
+          modelName: "Alert State",
+          idColumn: "alertStateId",
+          relationColumn: "alertState",
+        },
+      ],
+    });
+
     if (!createBy.data.alertId) {
       throw new BadDataException("alertId is null");
     }
@@ -116,7 +132,7 @@ export class Service extends DatabaseService<AlertStateTimeline> {
       }
 
       const alertStateId: ObjectID | undefined | null =
-        createBy.data.alertStateId || createBy.data.alertState?.id;
+        createBy.data.alertStateId;
 
       if (!alertStateId) {
         throw new BadDataException("alertStateId is null");
@@ -138,23 +154,26 @@ export class Service extends DatabaseService<AlertStateTimeline> {
             id: alertStateId,
             service: AlertStateService,
           },
-          /*
-           * The parent too: the queries and writes below run as root and are
-           * keyed on it alone. The relation is checked beside the id column
-           * because either one can set the saved row's alert.
-           */
-          {
-            modelName: "Alert",
-            id: createBy.data.alertId,
-            service: AlertService,
-          },
-          {
-            modelName: "Alert",
-            id: resolveReferenceId(createBy.data.alert),
-            service: AlertService,
-          },
         ],
       });
+
+      /*
+       * The queries and writes below run as root and are keyed on the parent
+       * alone. The lookup is filtered by project, so a missing parent and
+       * another project's parent get the same answer.
+       */
+      const isAlertAvailable: boolean =
+        await ProjectScopedReferenceValidator.isUsableInProject({
+          projectId: createBy.data.projectId,
+          id: createBy.data.alertId,
+          service: AlertService,
+        });
+
+      if (!isAlertAvailable) {
+        throw new BadDataException(
+          `This alert state timeline references an Alert that is not available in this project: "${createBy.data.alertId}".`,
+        );
+      }
 
       const stateBeforeThis: AlertStateTimeline | null = await this.findOneBy({
         query: {
