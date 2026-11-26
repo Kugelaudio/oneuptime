@@ -20,7 +20,9 @@ import { JSONObject } from "../../Types/JSON";
 import AlertInternalNote from "../../Models/DatabaseModels/AlertInternalNote";
 import AlertInternalNoteService from "./AlertInternalNoteService";
 import CaptureSpan from "../Utils/Telemetry/CaptureSpan";
-import ProjectScopedReferenceValidator from "../Utils/Database/ProjectScopedReferenceValidator";
+import ProjectScopedReferenceValidator, {
+  resolveReferenceId,
+} from "../Utils/Database/ProjectScopedReferenceValidator";
 import logger, { LogAttributes } from "../Utils/Logger";
 import AlertFeedService from "./AlertFeedService";
 import { AlertFeedEventType } from "../../Models/DatabaseModels/AlertFeed";
@@ -135,6 +137,21 @@ export class Service extends DatabaseService<AlertStateTimeline> {
             modelName: "Alert State",
             id: alertStateId,
             service: AlertStateService,
+          },
+          /*
+           * The parent too: the queries and writes below run as root and are
+           * keyed on it alone. The relation is checked beside the id column
+           * because either one can set the saved row's alert.
+           */
+          {
+            modelName: "Alert",
+            id: createBy.data.alertId,
+            service: AlertService,
+          },
+          {
+            modelName: "Alert",
+            id: resolveReferenceId(createBy.data.alert),
+            service: AlertService,
           },
         ],
       });

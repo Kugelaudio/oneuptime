@@ -26,7 +26,9 @@ import IncidentStateTimeline from "../../Models/DatabaseModels/IncidentStateTime
 import IncidentMember from "../../Models/DatabaseModels/IncidentMember";
 import IncidentRole from "../../Models/DatabaseModels/IncidentRole";
 import { IsBillingEnabled } from "../EnvironmentConfig";
-import ProjectScopedReferenceValidator from "../Utils/Database/ProjectScopedReferenceValidator";
+import ProjectScopedReferenceValidator, {
+  resolveReferenceId,
+} from "../Utils/Database/ProjectScopedReferenceValidator";
 import logger, { LogAttributes } from "../Utils/Logger";
 import IncidentFeedService from "./IncidentFeedService";
 import AIIncidentPostmortemRunner from "../Utils/AI/SRE/IncidentPostmortemRunner";
@@ -145,6 +147,21 @@ export class Service extends DatabaseService<IncidentStateTimeline> {
             modelName: "Incident State",
             id: incidentStateId,
             service: IncidentStateService,
+          },
+          /*
+           * The parent too: the queries and writes below run as root and are
+           * keyed on it alone. The relation is checked beside the id column
+           * because either one can set the saved row's incident.
+           */
+          {
+            modelName: "Incident",
+            id: createBy.data.incidentId,
+            service: IncidentService,
+          },
+          {
+            modelName: "Incident",
+            id: resolveReferenceId(createBy.data.incident),
+            service: IncidentService,
           },
         ],
       });
