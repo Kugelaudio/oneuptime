@@ -1,6 +1,8 @@
 import AlertStateService from "../../../Server/Services/AlertStateService";
+import AlertService from "../../../Server/Services/AlertService";
 import AlertStateTimelineService from "../../../Server/Services/AlertStateTimelineService";
 import IncidentStateService from "../../../Server/Services/IncidentStateService";
+import IncidentService from "../../../Server/Services/IncidentService";
 import IncidentStateTimelineService from "../../../Server/Services/IncidentStateTimelineService";
 import MonitorService from "../../../Server/Services/MonitorService";
 import MonitorStatusService from "../../../Server/Services/MonitorStatusService";
@@ -288,6 +290,9 @@ describe("missing-reference guard on write", () => {
     test("create checks the incident state against IncidentStateService", async () => {
       spyOnValidator();
       jest
+        .spyOn(IncidentService, "findOneBy")
+        .mockResolvedValue({ _id: MONITOR_ID.toString() } as never);
+      jest
         .spyOn(IncidentStateTimelineService, "findOneBy")
         .mockResolvedValue(null as never);
 
@@ -305,7 +310,7 @@ describe("missing-reference guard on write", () => {
       expect(validatorCalls[0]!.references[0]!.modelName).toBe(
         "Incident State",
       );
-      expect(validatorCalls[0]!.references[0]!.id).toBe(INCIDENT_STATE_ID);
+      expect(validatorCalls[0]!.references[0]!.id).toEqual(INCIDENT_STATE_ID);
       expect(serviceNameOf(validatorCalls[0]!.references[0]!.service)).toBe(
         "IncidentStateService",
       );
@@ -335,6 +340,9 @@ describe("missing-reference guard on write", () => {
     test("create checks the alert state against AlertStateService", async () => {
       spyOnValidator();
       jest
+        .spyOn(AlertService, "findOneBy")
+        .mockResolvedValue({ _id: MONITOR_ID.toString() } as never);
+      jest
         .spyOn(AlertStateTimelineService, "findOneBy")
         .mockResolvedValue(null as never);
 
@@ -350,7 +358,7 @@ describe("missing-reference guard on write", () => {
       expect(validatorCalls).toHaveLength(1);
       expect(validatorCalls[0]!.subject).toBe("alert state timeline");
       expect(validatorCalls[0]!.references[0]!.modelName).toBe("Alert State");
-      expect(validatorCalls[0]!.references[0]!.id).toBe(ALERT_STATE_ID);
+      expect(validatorCalls[0]!.references[0]!.id).toEqual(ALERT_STATE_ID);
       expect(serviceNameOf(validatorCalls[0]!.references[0]!.service)).toBe(
         "AlertStateService",
       );

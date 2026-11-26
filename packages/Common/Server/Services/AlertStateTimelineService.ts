@@ -234,6 +234,24 @@ export class Service extends ProjectReferencesService<AlertStateTimeline> {
         ],
       });
 
+      /*
+       * The queries and writes below run as root and are keyed on the parent
+       * alone. The lookup is filtered by project, so a missing parent and
+       * another project's parent get the same answer.
+       */
+      const isAlertAvailable: boolean =
+        await ProjectScopedReferenceValidator.isUsableInProject({
+          projectId: createBy.data.projectId,
+          id: createBy.data.alertId,
+          service: AlertService,
+        });
+
+      if (!isAlertAvailable) {
+        throw new BadDataException(
+          `This alert state timeline references an Alert that is not available in this project: "${createBy.data.alertId}".`,
+        );
+      }
+
       const stateBeforeThis: AlertStateTimeline | null = await this.findOneBy({
         query: {
           alertId: createBy.data.alertId,

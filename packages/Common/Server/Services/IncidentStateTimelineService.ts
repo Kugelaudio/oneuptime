@@ -314,6 +314,24 @@ export class Service extends ProjectReferencesService<IncidentStateTimeline> {
         ],
       });
 
+      /*
+       * The queries and writes below run as root and are keyed on the parent
+       * alone. The lookup is filtered by project, so a missing parent and
+       * another project's parent get the same answer.
+       */
+      const isIncidentAvailable: boolean =
+        await ProjectScopedReferenceValidator.isUsableInProject({
+          projectId: createBy.data.projectId,
+          id: createBy.data.incidentId,
+          service: IncidentService,
+        });
+
+      if (!isIncidentAvailable) {
+        throw new BadDataException(
+          `This incident state timeline references an Incident that is not available in this project: "${createBy.data.incidentId}".`,
+        );
+      }
+
       // Execute queries for before and after states in parallel for better performance
       const [stateBeforeThis, stateAfterThis] = await Promise.all([
         this.findOneBy({
